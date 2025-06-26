@@ -1,4 +1,5 @@
-# Kria Board Environment Setup Guide
+# Kria Board Remote Setup Guide
+
 To have a stable setup, the idea is to load a certfied ubuntu on the sd card of the board as a 
 backup image. Then using TFTP you can load the Image and the device tree generated through 
 this repo, and using NFS after that you can load the filesystem.
@@ -32,7 +33,6 @@ this repo, and using NFS after that you can load the filesystem.
 ## Setup Server: DHCP, TFTP and NFS 
 1. **Setup DHCP Server:**
     - Install DHCP server to give to the board a specific IP every time.
-    to do ...
 
 2. **Setup TFTP Server:**
     - Install TFTP server on your host machine:
@@ -77,7 +77,7 @@ this repo, and using NFS after that you can load the filesystem.
 
 ## Build The Environment
 Once the Server is ready and the board is working launch the build_environment.sh script to generate all
-the needed Images, the file system etc ...
+the needed artifacts (e.g., Image, filesystem).
 
 1. **U-BOOT autmatic boot.scr load using tftp**
     - The kria QSPI cannot be written using saveenv in U-BOOT. So you cannot save the command to load the 
@@ -196,5 +196,4 @@ linear read bandwidth over 8192 KiB (8 MiB) block
 242.3 MiB/s, 254.1 MB/s
 242.4 MiB/s, 254.2 MB/s
 242.4 MiB/s, 254.2 MB/s
-242.5 MiB/s, 254.2 MB/s
-```
+242.5 MiB/s, 254.2 MB/s`

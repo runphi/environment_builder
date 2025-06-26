@@ -2,11 +2,6 @@
 
 - Split defconfigs scripts per components as the compile scripts (with too many components it is difficult to remember the flags)
 
-- Generate files in the install directory from the target configuration file during build_environment:  
-    - Set board static IP based on the IP of the configuration file 
-    - Set jailhouse_path.sh to export the directory indicated in the configuration file
-    - Set jailhouse scripts for the target by reading the configuration file
-
 - Solve the authorized_keys problem. 
     Problem: The authorized_keys file is loaded in /etc/dropbear/ instead of /root/.ssh and the user have to move it manually every time.
 
@@ -18,4 +13,4 @@
 
 - Add multi-architectural managment (x86, riscv, ...)
 
-- Add new Boads support (ZCU104, Tegra, ...)
+- Add new Boads support (Tegra, Coral, ...)

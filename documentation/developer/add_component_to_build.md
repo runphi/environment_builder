@@ -1,3 +1,4 @@
+## OLD 
 
 This is a list of steps to insert a new component to build (such as QEMU, BUILDROOT, ATF etc...)
 
@@ -27,7 +28,7 @@ try the script and verify that the new component output image is generated and c
     - In the scripts/common/common.sh script add default component in "# To Build (Default="n")" section:
       - <name_component>_BUILD="n"
 
-3) UPDATE CONFIGURE EVERYTHING
+3) UPDATE BUILD ENVIRONMENT 
     - In the scripts/build_environment.sh
     - in the "## CLONE PHASE ##" add a new CLONE copying one of the existing and changing the subject 
     - In the "#Wait for all the clones to complete" section add the wait ${pid<name of the component>}
