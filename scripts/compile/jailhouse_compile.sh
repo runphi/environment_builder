@@ -111,6 +111,14 @@ if [[ "${INSTALL_NFS,,}" =~ ^y(es)?$ ]]; then
   fi
   cp -rf "${jailhouse_dir}" "${rootfs_dir}/${TARGET}/root/" > /dev/null 2>&1
 
+  # Copy the remote core demos elf files in the lib/firmware directory
+  if [[ "$RCPUs" == "all" || "$RCPUs" == "armr5" ]]; then
+    cp "${jailhouse_dir}"/inmates/demos/armr5/src*/*.elf "${rootfs_dir}/${TARGET}/lib/firmware/"
+  fi
+  if [[ "$RCPUs" == "all" || "$RCPUs" == "riscv32" ]]; then
+    cp "${jailhouse_dir}"/inmates/demos/riscv/src*/*.elf "${rootfs_dir}/${TARGET}/lib/firmware/"
+  fi
+
   # Jailhouse should install pyjailhouse in the libexec/jailhouse directory but it doesn't. So lets do it manually
   echo "moving pyjailhouse in the right directory..."
   pyjailhouse_path=$(find "${rootfs_dir}/${TARGET}/usr/local/lib" -type d -name "pyjailhouse")
@@ -130,6 +138,14 @@ if [[ "${INSTALL_OVERLAY,,}" =~ ^y(es)?$ ]]; then
     exit 1
   fi
   echo "JAILHOUSE has been successfully installed in the install directory!"
+
+  # Copy the remote core demos elf files in the lib/firmware directory
+  if [[ "$RCPUs" == "all" || "$RCPUs" == "armr5" ]]; then
+    cp "${jailhouse_dir}"/inmates/demos/armr5/src*/*.elf "${install_dir}/lib/firmware/"
+  fi
+  if [[ "$RCPUs" == "all" || "$RCPUs" == "riscv32" ]]; then
+    cp "${jailhouse_dir}"/inmates/demos/riscv/src*/*.elf "${install_dir}/lib/firmware/"
+  fi
 
   # Create overlay directory structure
   mkdir -p "${install_dir}"/root/inmates/demos/linux
