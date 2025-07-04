@@ -19,6 +19,11 @@ ID      Name                    State             Assigned CPUs           Assign
 
 
 ### Start VM (cell) on a remote core (RPU0)
+Copy the VM image from jailhouse to /lib/firmware directory
+```sh
+cp jailhouse/inmates/demos/armr5/src_rpu0-latency/rpu0-latency-demo.elf /lib/firmware/
+```
+
 Load a VM in the remote core RPU0 (the kv260 cell configs works also for the kr260):
 ```sh 
 jailhouse cell create jailhouse/configs/arm64/zynqmp-kv260-RPU0-inmate-demo.cell
