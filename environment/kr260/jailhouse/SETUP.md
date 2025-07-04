@@ -35,14 +35,14 @@ Then update the arm-trusted-firmware, the Kernel Image and the device tree to en
 
 ## Build The Environment
 Launch the build_environment.sh script to generate the needed Kernel Image and jailhouse/omnivisor.
-    - Enter the docker container.
-    ```sh
-    docker run -it --rm --user $(id -u):$(id -g) -v /etc/passwd:/etc/passwd:ro --net=host --name env_builder_container -v ${PWD}:/home -w="/home" runphi_env_builder /bin/bash
-    ```
-    - Launch the build.
-    ```sh 
-    ./scripts/build_environment.sh -t kr260 -b jailhouse
-    ```
+  - Enter the docker container.
+```sh
+  docker run -it --rm --user $(id -u):$(id -g) -v /etc/passwd:/etc/passwd:ro --net=host --name env_builder_container -v ${PWD}:/home -w="/home" runphi_env_builder /bin/bash
+```
+  - Launch the build.
+```sh 
+  ./scripts/build_environment.sh -t kr260 -b jailhouse
+```
 
 ## Update arm trusted firmware
 The kria boars doesn't boot from SD but it uses the pre-defined BOOT.BIN in the QSPI memory which contains: 
