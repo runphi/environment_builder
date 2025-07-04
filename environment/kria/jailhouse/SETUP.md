@@ -31,10 +31,10 @@ Only after that we can rewrite the sd card with the other artifacts produced wit
   - Insert the SD card into the Kria board.
   - Connect the board to a power source and to the PC using the uart.
   - Power on the board.
-  - Connect to the uart using minicom (or picocom).
-    ```sh
-    sudo minicom -D /dev/ttyUSB1 
-    ```
+  - Connect to the uart using picocom (or minicom).
+  ```sh
+  picocom -b 115800 /dev/ttyUSB1
+  ```
 
 ## Load BOOT.BIN into QSPI
 
