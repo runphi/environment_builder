@@ -78,6 +78,18 @@ else
   echo "Skipped compiling and installing modules."
 fi
 
+# Check if boot_dir exists, if not, create it
+if [ ! -d "${boot_dir}" ]; then
+  echo "Creating directory: ${boot_dir}"
+  mkdir -p "${boot_dir}"
+fi
+
+# Check if tftp_boot_dir exists, if not, create it
+if [ ! -d "${tftp_boot_dir}" ]; then
+  echo "Creating directory: ${tftp_boot_dir}"
+  mkdir -p "${tftp_boot_dir}"
+fi
+
 # Copy Image in the boot directory
 cp "${image_dir}"/Image "${boot_dir}"/
 cp "${image_dir}"/Image "${tftp_boot_dir}"/
