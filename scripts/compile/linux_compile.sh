@@ -80,3 +80,4 @@ fi
 
 # Copy Image in the boot directory
 cp "${image_dir}"/Image "${boot_dir}"/
+cp "${image_dir}"/Image "${tftp_boot_dir}"/

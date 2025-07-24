@@ -74,6 +74,7 @@ output_dir=${backend_dir}/output
 hardware_dir=${output_dir}/hardware
 boot_dir=${output_dir}/boot
 rootfs_dir=${output_dir}/rootfs
+tftp_boot_dir=/home/tftpboot/${TARGET}-${BACKEND}
 # BUILD
 build_dir=${backend_dir}/build
 # CUSTOM BUILD

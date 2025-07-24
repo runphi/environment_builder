@@ -1,3 +1,3 @@
 #!/bin/bash
-TARGET="kria"
-BACKEND="jailhouse"
+TARGET="zcu104"
+BACKEND="xen"

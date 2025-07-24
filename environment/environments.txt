@@ -2,5 +2,6 @@ qemu-jailhouse
 kria-jailhouse
 kr260-jailhouse
 zcu104-jailhouse
+zcu104-xen
 zcu102-jailhouse
 tebf0808-jailhouse

@@ -1,0 +1,197 @@
+diff --git a/drivers/remoteproc/Kconfig b/drivers/remoteproc/Kconfig
+index ec0d67e90..67f2f4ef6 100644
+--- a/drivers/remoteproc/Kconfig
++++ b/drivers/remoteproc/Kconfig
+@@ -368,6 +368,13 @@ config ZYNQMP_R5_REMOTEPROC
+ 	select ZYNQMP_IPI_MBOX
+ 	help
+ 	  Say y or m here to support ZynqMP R5 remote processors via the remote
++	  processor framework. 
++
++config PICO32_REMOTEPROC
++	tristate "PICO32 remoteproc support"
++	depends on PM && ARCH_ZYNQMP
++	help
++	  Say y or m here to support PICO32 remote processors via the remote
+ 	  processor framework.
+ endif # REMOTEPROC
+ 
+diff --git a/drivers/remoteproc/Makefile b/drivers/remoteproc/Makefile
+index 43e752f59..0c07b7014 100644
+--- a/drivers/remoteproc/Makefile
++++ b/drivers/remoteproc/Makefile
+@@ -40,3 +40,4 @@ obj-$(CONFIG_STM32_RPROC)		+= stm32_rproc.o
+ obj-$(CONFIG_TI_K3_DSP_REMOTEPROC)	+= ti_k3_dsp_remoteproc.o
+ obj-$(CONFIG_TI_K3_R5_REMOTEPROC)	+= ti_k3_r5_remoteproc.o
+ obj-$(CONFIG_ZYNQMP_R5_REMOTEPROC)	+= zynqmp_r5_remoteproc.o
++obj-$(CONFIG_PICO32_REMOTEPROC)	+= pico32_remoteproc.o
+diff --git a/drivers/remoteproc/pico32_remoteproc.c b/drivers/remoteproc/pico32_remoteproc.c
+new file mode 100644
+index 000000000..adf44da4b
+--- /dev/null
++++ b/drivers/remoteproc/pico32_remoteproc.c
+@@ -0,0 +1,164 @@
++
++
++#include <linux/interrupt.h>
++#include <linux/kernel.h>
++#include <linux/list.h>
++#include <linux/mailbox_client.h>
++#include <linux/mailbox/zynqmp-ipi-message.h>
++#include <linux/module.h>
++#include <linux/of_address.h>
++#include <linux/of_platform.h>
++#include <linux/of_reserved_mem.h>
++#include <linux/platform_device.h>
++#include <linux/remoteproc.h>
++#include <linux/skbuff.h>
++#include <linux/sysfs.h>
++
++#include "remoteproc_internal.h"
++
++struct pico32_rproc_data {
++	const char *device_name;
++};
++
++
++struct pico32_rproc {
++	struct device *dev;
++	struct rproc *rproc;
++};
++
++static void *pico32_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iomem)
++{
++	void __iomem *va = NULL;
++	struct pico32_rproc *p_rproc = rproc->priv;
++
++	dev_info(p_rproc->dev, "da 0x%llx len %zu, is_iomem %d\n", da, len, is_iomem ? *is_iomem : 0);
++	va = ioremap_wc(da, len);
++	return (__force void *)va;
++}
++
++static int pico32_rproc_start(struct rproc *rproc)
++{
++	struct pico32_rproc *p_rproc = rproc->priv;
++	unsigned long fpga_base_addr = 0x80000000;	// take from device tree
++	volatile unsigned long __iomem *fpga_start;
++
++
++	dev_info(p_rproc->dev, "Starting Pico32 remoteproc\n");
++	// Map the physical address to virtual address space
++	fpga_start = ioremap(fpga_base_addr, sizeof(unsigned long));
++	if (!fpga_start) {
++		dev_err(p_rproc->dev, "Failed to map FPGA base address\n");
++		return -ENOMEM;
++	}
++
++	// Write 1 to the FPGA start address
++	iowrite8(0, fpga_start);
++	iowrite8(1, fpga_start);
++
++	// Unmap the address after use
++	iounmap(fpga_start);
++
++	return 0;
++}
++
++static int pico32_rproc_stop(struct rproc *rproc)
++{
++	struct pico32_rproc *p_rproc = rproc->priv;
++	unsigned long fpga_base_addr = 0x80000000;	// take from device tree
++	volatile unsigned long __iomem *fpga_start;
++
++	// Map the physical address to virtual address space
++	fpga_start = ioremap(fpga_base_addr, sizeof(unsigned long));
++	if (!fpga_start) {
++		dev_err(p_rproc->dev, "Failed to map FPGA base address\n");
++		return -ENOMEM;
++	}
++
++	// Write 2 to the FPGA start address
++	iowrite32(0, fpga_start);
++
++	// Unmap the address after use
++	iounmap(fpga_start);
++
++	return 0;
++}
++
++static void pico32_rproc_kick(struct rproc *rproc, int vqid)
++{
++}
++
++static struct rproc_ops pico32_rproc_ops = {
++	.start		= pico32_rproc_start,
++	.stop		= pico32_rproc_stop,
++	.kick		= pico32_rproc_kick,
++	.load		= rproc_elf_load_segments,
++	.get_boot_addr	= rproc_elf_get_boot_addr, 
++	.da_to_va	= pico32_da_to_va,
++};
++
++
++static int pico32_rproc_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct rproc *rproc;
++	struct pico32_rproc **p_rproc;
++	int ret;
++
++	dev_info(dev, "Pico32 remoteproc probing ...\n");
++	/* Allocate remoteproc */
++	rproc = devm_rproc_alloc(dev, dev_name(dev), &pico32_rproc_ops,
++				 NULL, sizeof(struct pico32_rproc));
++	if (!rproc) {
++		ret = -ENOMEM;
++		goto error;
++	}
++	dev_info(dev, "Pico32 remoteproc allocated\n");
++
++	rproc->auto_boot = false;	
++	// *p_rproc = rproc->priv;
++	// (*p_rproc)->rproc = rproc;
++	// (*p_rproc)->dev = dev;
++
++	dev_info(dev, "Adding the remoteproc\n");
++	/* Add pico32 remoteproc */
++	ret = devm_rproc_add(dev, rproc);
++	if (ret)
++		goto error;
++	dev_info(dev, "Pico32 remoteproc added\n");
++
++	return 0;
++error:
++	*p_rproc = NULL;
++	return ret;
++}
++
++static int pico32_rproc_remove(struct platform_device *pdev)
++{
++	return 0;
++}
++
++
++static const struct pico32_rproc_data pico32_data = {
++	.device_name = "pico32",
++};
++
++
++static const struct of_device_id pico32_rproc_of_match[] = {
++	{ .compatible	= "dottavia,pico32-remoteproc", .data = &pico32_data, },
++	{ /* sentinel */ },
++};
++MODULE_DEVICE_TABLE(of, pico32_rproc_of_match);
++
++/* Match table for OF platform binding */
++static struct platform_driver pico32_rproc_driver = {
++	.probe = pico32_rproc_probe,
++	.remove = pico32_rproc_remove,
++	.driver = {
++		.name = "pico32-rproc",
++		.of_match_table = pico32_rproc_of_match,
++	},
++};
++module_platform_driver(pico32_rproc_driver);
++
++MODULE_AUTHOR("Daniele Ottaviano <daniele.ottaviano@tum.de>");
++MODULE_LICENSE("GPL v2");
