@@ -7,6 +7,7 @@ usage() {
     [-t <target>]\r\n \
     [-b <backend>]\r\n \
     [-c <config_file>]\r\n \
+    [-l list available configs for the selected environment and exit]\r\n \
     [-h help]" 1>&2
   exit 1
 }
@@ -19,36 +20,77 @@ source "${script_dir}"/common/common.sh
 # By default no menuconfig
 MENUCFG=0
 CONFIG_FILE=""
+LIST_ONLY=0
 
-while getopts "mt:b:c:h" o; do
+while getopts "mt:b:c:lh" o; do
   case "${o}" in
-  m)
-    MENUCFG=1
-    ;;
-  t)
-    TARGET=${OPTARG}
-    ;;
-  b)
-    BACKEND=${OPTARG}
-    ;;
-  c)
-    CONFIG_FILE=${OPTARG}
-    ;;
-  h)
-    usage
-    ;;
-  *)
-    usage
-    ;;
+    m)
+      MENUCFG=1
+      ;;
+    t)
+      TARGET=${OPTARG}
+      ;;
+    b)
+      BACKEND=${OPTARG}
+      ;;
+    c)
+      CONFIG_FILE=${OPTARG}
+      ;;
+    l)
+      LIST_ONLY=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
   esac
 done
 shift $((OPTIND - 1))
 
-# Set the Environment
+# Set the Environment (needed also for -l to know custom_linux_config_dir)
 source "${script_dir}"/common/set_environment.sh "${TARGET}" "${BACKEND}"
 
+# If only listing was requested, do it and exit.
+if [[ "${LIST_ONLY}" -eq 1 ]]; then
+  if [[ -z "${custom_linux_config_dir}" ]]; then
+    echo "ERROR: custom_linux_config_dir is not set. Ensure TARGET/BACKEND are valid."
+    exit 1
+  fi
+  if [[ ! -d "${custom_linux_config_dir}" ]]; then
+    echo "ERROR: Directory not found: ${custom_linux_config_dir}"
+    exit 1
+  fi
+
+  echo "Available configs in: ${custom_linux_config_dir}"
+  # Prefer 'find' for robust listing of regular files; fall back to ls if needed.
+  if command -v find >/dev/null 2>&1; then
+    mapfile -t _configs < <(find "${custom_linux_config_dir}" -maxdepth 1 -type f -printf "%f\n" | sort)
+  else
+    # shellcheck disable=SC2012
+    mapfile -t _configs < <(ls -1 "${custom_linux_config_dir}" 2>/dev/null | sort)
+  fi
+
+  if [[ ${#_configs[@]} -eq 0 ]]; then
+    echo "  (no files found)"
+    exit 0
+  fi
+
+  for f in "${_configs[@]}"; do
+    if [[ -n "${defconfig_linux_name}" && "${f}" == "${defconfig_linux_name}" ]]; then
+      echo "  ${f}   [default name]"
+    else
+      echo "  ${f}"
+    fi
+  done
+  echo
+  echo "Use:  $0 -t \"${TARGET}\" -b \"${BACKEND}\" -c <one_of_the_above>"
+  exit 0
+fi
+
 # ASK user if he really wants to update
-read -r -p "Do you really want to update "${defconfig_linux_name}" (your current configs will be lost)? (y/n): " UPDATE
+read -r -p "Do you really want to update ${defconfig_linux_name} (your current configs will be lost)? (y/n): " UPDATE
 
 # Update!
 if [[ "${UPDATE,,}" =~ ^y(es)?$ ]]; then
