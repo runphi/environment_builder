@@ -2,9 +2,10 @@
 
 usage() {
   echo -e "Usage: $0 \r\n \
-  This script saves the linux configuration of the selected environment:\r\n \ 
+  This script saves the linux configuration of the selected environment:\r\n \
     [-t <target>]\r\n \
     [-b <backend>]\r\n \
+    [-n <name>  also save a copy as this name in custom_linux_config_dir]\r\n \
     [-h help]" 1>&2
   exit 1
 }
@@ -14,20 +15,15 @@ current_dir=$(dirname -- "$(readlink -f -- "$0")")
 script_dir=$(dirname "${current_dir}")
 source "${script_dir}"/common/common.sh
 
-while getopts "t:b:h" o; do
+ALT_NAME=""
+
+while getopts "t:b:n:h" o; do
   case "${o}" in
-  t)
-    TARGET=${OPTARG}
-    ;;
-  b)
-    BACKEND=${OPTARG}
-    ;;
-  h)
-    usage
-    ;;
-  *)
-    usage
-    ;;
+    t) TARGET=${OPTARG} ;;
+    b) BACKEND=${OPTARG} ;;
+    n) ALT_NAME=${OPTARG} ;;
+    h) usage ;;
+    *) usage ;;
   esac
 done
 shift $((OPTIND - 1))
@@ -35,15 +31,25 @@ shift $((OPTIND - 1))
 # Set the Environment
 source "${script_dir}"/common/set_environment.sh "${TARGET}" "${BACKEND}"
 
-read -r -p "Do you really want to save "${defconfig_linux_name}" (if already exist it will be overwritten)? (y/n): " SAVE
+read -r -p "Do you really want to save ${defconfig_linux_name} (if already exists it will be overwritten)? (y/n): " SAVE
 
 # Save!
 if [[ "${SAVE,,}" =~ ^y(es)?$ ]]; then
   echo "Saving LINUX config ..."
-  echo "saving ${defconfig_linux_name} ..."
+  echo "Saving default as '${defconfig_linux_name}' ..."
+  [[ -n "${ALT_NAME}" ]] && echo "Also saving an additional copy as '${ALT_NAME}' ..."
 
-  # Save old
-  cp "${custom_linux_config_dir}"/"${defconfig_linux_name}" "${custom_linux_config_dir}"/"${defconfig_linux_name}"_old
+  # Backup existing default copy, if present
+  if [[ -f "${custom_linux_config_dir}/${defconfig_linux_name}" ]]; then
+    cp "${custom_linux_config_dir}/${defconfig_linux_name}" \
+       "${custom_linux_config_dir}/${defconfig_linux_name}_old"
+  fi
+
+  # If an alternate name was requested, back it up too (if present)
+  if [[ -n "${ALT_NAME}" && -f "${custom_linux_config_dir}/${ALT_NAME}" ]]; then
+    cp "${custom_linux_config_dir}/${ALT_NAME}" \
+       "${custom_linux_config_dir}/${ALT_NAME}_old"
+  fi
 
   # Save Linux defconfig
   make -C "${linux_dir}" ARCH="${ARCH}" CROSS_COMPILE="${CROSS_COMPILE}" savedefconfig
@@ -53,6 +59,15 @@ if [[ "${SAVE,,}" =~ ^y(es)?$ ]]; then
   fi
   echo "LINUX defconfig has been successfully saved"
 
-  cp "${linux_dir}"/defconfig "${linux_config_dir}"/"${defconfig_linux_name}"
-  cp "${linux_config_dir}"/"${defconfig_linux_name}" "${custom_linux_config_dir}"/
+  # Copy to kernel config dir under the default defconfig name
+  cp "${linux_dir}/defconfig" "${linux_config_dir}/${defconfig_linux_name}"
+
+  # Copy default to custom configs dir
+  cp "${linux_config_dir}/${defconfig_linux_name}" "${custom_linux_config_dir}/"
+
+  # If requested, also save a second copy under ALT_NAME in custom configs dir
+  if [[ -n "${ALT_NAME}" ]]; then
+    cp "${linux_config_dir}/${defconfig_linux_name}" \
+       "${custom_linux_config_dir}/${ALT_NAME}"
+  fi
 fi
