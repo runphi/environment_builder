@@ -9,7 +9,7 @@ setenv gatewayip  192.168.100.254
 setenv netmask    255.255.255.0
 
 # ---------- file locations on TFTP server ----------
-setenv tftppath   zcu104-xen                    # folder under /var/lib/tftpboot
+setenv tftppath   zcu104-xen                    # folder under /root/runphi/environment_builder/tftpboot/
 setenv nfspath    /root/runphi/environment_builder/environment/zcu104/xen/output/rootfs/zcu104
 
 # ---------- load addresses in RAM ----------
