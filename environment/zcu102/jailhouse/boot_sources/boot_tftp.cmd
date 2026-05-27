@@ -1,45 +1,41 @@
-# This is a boot script for U-Boot.
-# Generate boot.scr:
-# mkimage -c none -A arm -T script -d boot.cmd boot.scr
-#
+#---------------------------------------------------------------
+# boot.cmd  –  ZCU102: TFTP kernel+DTB, NFS-root rootfs
+# Build:  mkimage -A arm64 -T script -C none -d boot.cmd boot.scr
+#---------------------------------------------------------------
 
-kernel_path="/zcu102_3/Image"
-dtb_path="/zcu102_3/system.dtb"
-# dhcp ${script_addr} "/zcu102_3/boot.scr" ; source ${script_addr}
+# ---------- network parameters ----------
+setenv ipaddr     192.168.100.51          # board IP
+setenv serverip   192.168.100.45          # TFTP/NFS server IP
+setenv gatewayip  192.168.100.254
+setenv netmask    255.255.255.0
 
-additional_bootargs="mem=256M"
+# ---------- where the files live on the server ----------
+setenv tftppath   zcu102-jailhouse
+setenv nfspath    /root/runphi/environment_builder/environment/zcu102/jailhouse/output/rootfs/zcu102
 
-# Addresses from https://www.kernel.org/doc/Documentation/arm/Booting
-setenv script_addr 0x00100000
-setenv kernel_addr 0x01000000 #0x02000000
-setenv dtb_addr    0x05000000 #0x08000000
-setenv last_addr   0x10000000 # You are leaving the DDR
-setexpr max_kernel_size ${dtb_addr} - ${kernel_addr}
-setexpr max_dtb_size ${last_addr} - ${dtb_addr}
+# ---------- where to put them in RAM ----------
+setenv kernel_addr 0x0080000      # 512 KiB, safely below 128 MiB
+setenv fdt_addr    0x02000000     #   32 MiB, well clear of kernel
 
-echo "======================"
-echo "=== Loading kernel ==="
-echo "======================"
-dhcp ${kernel_addr} ${kernel_path};
-if itest "${filesize}" > "${max_kernel_size}" ; then
-	echo "Kernel too large!";
-	echo "May have 0x${max_kernel_size} byte, has 0x${filesize} byte."
-	exit;
-fi
+echo "------------------------------------------------------------"
+echo "TFTP: loading kernel from ${serverip}:${tftppath}/Image ..."
+tftpboot ${kernel_addr} ${tftppath}/Image  || exit
 
-echo "======================"
-echo "===  Loading dtb   ==="
-echo "======================"
-dhcp ${dtb_addr} ${dtb_path};
-if itest "${filesize}" > "${max_dtb_size}" ; then
-	echo "Device tree blob too large!";
-	echo "May have 0x${max_dtb_size} byte, has 0x${filesize} byte."
-	exit;
-fi
+echo "TFTP: loading DTB    from ${serverip}:${tftppath}/system.dtb ..."
+tftpboot ${fdt_addr}   ${tftppath}/system.dtb  || exit
+echo "------------------------------------------------------------"
 
-# NFS
-setenv bootargs "earlycon root=/dev/nfs nfsroot=/tftpboot/%s,vers=3,sec=sys  ip=dhcp rw rootwait console=ttyPS0,115200n8 clk_ignore_unused ${additional_bootargs}"
-# Ubuntu rootfs
-#setenv bootargs "earlycon clk_ignore_unused earlyprintk root=/dev/mmcblk0p2 rw rootwait"
-booti ${kernel_addr} - ${dtb_addr};
+# ---------- kernel command line ----------
+setenv bootargs "console=ttyPS0,115200 earlycon \
+root=/dev/nfs rw \
+nfsroot=${serverip}:${nfspath},tcp,nfsvers=3 \
+ip=${ipaddr}::${gatewayip}:${netmask}:zcu102:eth0:off \
+clk_ignore_unused"
+
+echo "Boot arguments:"
+echo ${bootargs}
+echo "------------------------------------------------------------"
+
+# ---------- boot the kernel ----------
+booti ${kernel_addr} - ${fdt_addr}
 
