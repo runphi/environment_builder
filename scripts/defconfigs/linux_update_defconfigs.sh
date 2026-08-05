@@ -8,6 +8,7 @@ usage() {
     [-b <backend>]\r\n \
     [-c <config_file>]\r\n \
     [-l list available configs for the selected environment and exit]\r\n \
+    [-y assume yes, do not prompt]\r\n \
     [-h help]" 1>&2
   exit 1
 }
@@ -22,8 +23,14 @@ MENUCFG=0
 CONFIG_FILE=""
 LIST_ONLY=0
 
-while getopts "mt:b:c:lh" o; do
+# Answer the confirmation prompt automatically (for non-interactive builds)
+ASSUME_YES=0
+
+while getopts "ymt:b:c:lh" o; do
   case "${o}" in
+  y)
+    ASSUME_YES=1
+    ;;
     m)
       MENUCFG=1
       ;;
@@ -90,7 +97,12 @@ if [[ "${LIST_ONLY}" -eq 1 ]]; then
 fi
 
 # ASK user if he really wants to update
-read -r -p "Do you really want to update ${defconfig_linux_name} (your current configs will be lost)? (y/n): " UPDATE
+if [[ ${ASSUME_YES} -eq 1 ]]; then
+  echo "Updating ${defconfig_linux_name} (-y given, not asking)"
+  UPDATE="y"
+else
+  read -r -p "Do you really want to update ${defconfig_linux_name} (your current configs will be lost)? (y/n): " UPDATE
+fi
 
 # Update!
 if [[ "${UPDATE,,}" =~ ^y(es)?$ ]]; then

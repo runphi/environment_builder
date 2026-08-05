@@ -7,6 +7,7 @@ usage() {
     [-t <target>]\r\n \
     [-b <backend>]\r\n \
     [-x update busybox config]\r\n \
+    [-y assume yes, do not prompt]\r\n \
     [-h help]" 1>&2
   exit 1
 }
@@ -20,8 +21,14 @@ source "${script_dir}"/common/common.sh
 MENUCFG=0
 UPDATE_BUSYBOX=n
 
-while getopts "mt:b:xh" o; do
+# Answer the confirmation prompt automatically (for non-interactive builds)
+ASSUME_YES=0
+
+while getopts "ymt:b:xh" o; do
   case "${o}" in
+  y)
+    ASSUME_YES=1
+    ;;
   m)
     MENUCFG=1
     ;;
@@ -48,7 +55,12 @@ shift $((OPTIND - 1))
 source "${script_dir}"/common/set_environment.sh "${TARGET}" "${BACKEND}"
 
 # ASK user if he really wants to update
-read -r -p "Do you really want to update "${defconfig_builroot_name}" (your current configs will be lost)? (y/n): " UPDATE
+if [[ ${ASSUME_YES} -eq 1 ]]; then
+  echo "Updating ${defconfig_builroot_name} (-y given, not asking)"
+  UPDATE="y"
+else
+  read -r -p "Do you really want to update "${defconfig_builroot_name}" (your current configs will be lost)? (y/n): " UPDATE
+fi
 
 # Update!
 if [[ "${UPDATE,,}" =~ ^y(es)?$ ]]; then
