@@ -79,17 +79,40 @@ overlayfs: failed to set xattr on upper
 overlayfs: upper fs missing required features.
 ```
 
-The fix is to keep the docker store on the SD card's ext4 partition and bind it
-into place. These lines are in the NFS rootfs `/etc/fstab`:
+The fix — the same one `zcu104b` (`192.168.100.52`, the Xen board) already uses —
+is to keep docker's storage on the SD card's ext4 partition. Note that board is
+*not* running docker on NFS either: only its root filesystem is NFS, while
+`docker info` there reports `Backing Filesystem: extfs`.
+
+In the NFS rootfs `/etc/fstab`:
 
 ```
-/dev/mmcblk0p2              /mnt/sdroot        ext4  defaults  0  0
-/mnt/sdroot/var/lib/docker  /var/lib/docker    none  bind      0  0
+/dev/mmcblk0p2	/mnt/docker	ext4	defaults,user_xattr	0	2
+```
+
+and in `/etc/docker/daemon.json`:
+
+```json
+{
+  "data-root": "/mnt/docker/var/lib/docker"
+}
 ```
 
 The SD partition still holds the original store, so all images survive the
-switch. Do not "fix" this by moving docker to the `vfs` driver — it works on
-NFS but is drastically slower and far more space-hungry.
+switch. (`zcu104b` points `data-root` at `/mnt/docker` directly because its SD
+partition is dedicated to docker; here the partition is the old SD rootfs, so
+the path keeps its existing `var/lib/docker` subdirectory.)
+
+Verify with:
+
+```sh
+docker info | grep -iE "storage driver|backing filesystem|docker root dir"
+docker run --rm alpine echo works
+```
+
+Do not "fix" this by switching to the `vfs` storage driver. It does work on NFS,
+but it is drastically slower and copies whole image layers instead of sharing
+them. No kernel option changes this — overlay2 needs a local upper filesystem.
 
 ### Switching between SD and network boot
 
