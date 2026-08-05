@@ -1,38 +1,44 @@
-# This is a boot script for U-Boot
-# Generate boot.scr:
-# mkimage -c none -A arm -T script -d boot.cmd.default boot.scr
-#
-################
-## Please change the kernel_offset and kernel_size if the kernel image size more than
-## the 100MB and BOOT.BIN size more than the 30MB
-## kernel_offset --> is the address of qspi which you want load the kernel image
-## kernel_size --> size of the kernel image in hex
-###############
-imageub_addr=0x10000000
-#fdt_addr=0x2A00000
-#kernel_addr=0x3000000
-kernel_addr=0x00200000
-fdt_addr=0x00100000
+# U-Boot boot script for ZCU104 (AArch64)
 
+# If these aren't pre-set by your U-Boot, define safe load addresses.
+if test -z "${kernel_addr_r}"; then setenv kernel_addr_r 0x02000000; fi
+if test -z "${fdt_addr_r}";    then setenv fdt_addr_r    0x01000000; fi
 
-for boot_target in ${boot_targets};
-do
-	if test "${boot_target}" = "mmc0" || test "${boot_target}" = "mmc1" ; then
-		if test -e ${devtype} ${devnum}:${distro_bootpart} /image.ub; then
-			fatload ${devtype} ${devnum}:${distro_bootpart} ${imageub_addr} image.ub;
-			bootm ${imageub_addr};
-			exit;
-		fi
-		if test -e ${devtype} ${devnum}:${distro_bootpart} /Image; then
-			setenv bootargs "earlycon clk_ignore_unused earlyprintk root=/dev/mmcblk0p2 rw rootwait"
-			setenv uenvcmd "fatload mmc 0 0x3000000 Image && fatload mmc 0 0x2A00000 system.dtb && booti 0x3000000 - 0x2A00000"
-			setenv bootcmd "run uenvcmd"
-			fatload ${devtype} ${devnum}:${distro_bootpart} ${kernel_addr} Image;
-			fatload ${devtype} ${devnum}:${distro_bootpart} ${fdt_addr} system.dtb;
-			booti ${kernel_addr} - ${fdt_addr};
-			exit;
-		fi
-		booti ${kernel_addr} - ${fdt_addr};
-		exit;
-	fi
+# Avoid relocation limits
+setenv fdt_high    0xffffffffffffffff
+setenv initrd_high 0xffffffffffffffff
+
+# Default to partition 1 for boot files if not provided by distro_bootcmd
+if test -z "${distro_bootpart}"; then setenv distro_bootpart 1; fi
+
+# Try mmc0 then mmc1 (or whatever is in ${boot_targets})
+for boot_target in ${boot_targets}; do
+    if test "${boot_target}" = "mmc0" || test "${boot_target}" = "mmc1"; then
+        setenv devtype mmc
+        if test "${boot_target}" = "mmc0"; then setenv devnum 0; else setenv devnum 1; fi
+
+        if mmc dev ${devnum}; then
+            # Rootfs is on partition 2 -> fetch PARTUUID and compose bootargs
+            part uuid ${devtype} ${devnum}:2 rootuuid
+            setenv bootargs "clk_ignore_unused earlycon console=ttyPS0,115200 root=PARTUUID=${rootuuid} rw rootwait"
+
+            # Prefer a FIT image if present
+            if test -e ${devtype} ${devnum}:${distro_bootpart} /image.ub; then
+                echo "Booting FIT from ${devtype} ${devnum}:${distro_bootpart} ..."
+                fatload ${devtype} ${devnum}:${distro_bootpart} ${kernel_addr_r} image.ub
+                bootm ${kernel_addr_r}
+            elif test -e ${devtype} ${devnum}:${distro_bootpart} /Image; then
+                echo "Booting Image+DTB from ${devtype} ${devnum}:${distro_bootpart} ..."
+                fatload ${devtype} ${devnum}:${distro_bootpart} ${kernel_addr_r} Image
+                fatload ${devtype} ${devnum}:${distro_bootpart} ${fdt_addr_r} system.dtb
+                booti ${kernel_addr_r} - ${fdt_addr_r}
+            else
+                echo "No kernel found on ${devtype} ${devnum}:${distro_bootpart}"
+            fi
+        fi
+    fi
 done
+
+echo "No valid boot target succeeded; resetting..."
+sleep 2
+reset

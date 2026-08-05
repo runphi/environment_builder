@@ -1,3 +1,3 @@
 #!/bin/bash
 TARGET="zcu104"
-BACKEND="xen"
+BACKEND="jailhouse"

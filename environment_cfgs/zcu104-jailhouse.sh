@@ -3,12 +3,12 @@
 ## Connection
 #IP="143.225.229.215"
 IP="192.168.100.47"
+#IP="192.168.100.52"
 USER="root"
 SSH_ARGS=""
 RSYNC_ARGS_SSH=""
 RSYNC_ARGS=""
 RSYNC_REMOTE_PATH=""
-
 
 ### CROSS COMPILING ARCHITECTURES
 ARCH="arm64"
@@ -17,8 +17,13 @@ CROSS_COMPILE="aarch64-linux-gnu-"
 REMOTE_COMPILE="arm-none-eabi-"
 
 ## Boot Sources Configuration
-BOOTCMD_CONFIG=""
-DTS_CONFIG=""
+# boot_jailhouse.cmd: SD boot + isolcpus 2-3 for the non-root cells
+# system_jailhouse.dts: reserves jailhouse@6f000000 and caps the memory node at
+# 0x7f000000, so it fits both the -omnv (hv @0x6f000000) and the -root-col*
+# (hv @0x7f000000) cells. NOTE: system.dts and system_omnv.dts do not compile
+# (duplicate phandles, dma@fd5x0000 vs cpu@0-3).
+BOOTCMD_CONFIG="jailhouse"
+DTS_CONFIG="jailhouse"
 
 ## COMPONENTS ##
 # QEMU
@@ -42,8 +47,9 @@ UBOOT_BUILD="n"
 # LINUX
 LINUX_BUILD="y"
 UPD_LINUX_COMPILE_ARGS=""
-LINUX_COMPILE_ARGS="-m"
-LINUX_PATCH_ARGS="-d jailhouse_enable, omnivisor" #preempt-rt
+LINUX_COMPILE_ARGS="-m -n"
+LINUX_PATCH_ARGS="-d jailhouse_enable, omnivisor" #preempt_rt # STANDARD LINE
+#LINUX_PATCH_ARGS=""
 LINUX_REPOSITORY="https://github.com/Xilinx/linux-xlnx.git"
 LINUX_BRANCH="xlnx_rebase_v6.1_LTS"
 LINUX_COMMIT=""

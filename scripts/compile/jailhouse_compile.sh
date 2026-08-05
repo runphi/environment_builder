@@ -63,8 +63,14 @@ source "${script_dir}"/common/set_environment.sh "${TARGET}" "${BACKEND}"
 
 # Always copy configs, custom dts, custom cells, and custom inmates before builing Jailhouse
 #cp "${custom_jailhouse_cell_dir}"/dts/*.dts "${jailhouse_cell_dir}"/dts/
-cp -r "${custom_jailhouse_cell_dir}"/* "${jailhouse_cell_dir}"
-cp -r "${custom_jailhouse_inmate_demos_dir}"/* "${jailhouse_inmate_demos_dir}"
+# Use /. instead of /* so an empty or missing custom dir is not an error: an
+# environment that has no override at all (e.g. kria) is a valid setup.
+if [ -d "${custom_jailhouse_cell_dir}" ]; then
+  cp -r "${custom_jailhouse_cell_dir}"/. "${jailhouse_cell_dir}"/
+fi
+if [ -d "${custom_jailhouse_inmate_demos_dir}" ]; then
+  cp -r "${custom_jailhouse_inmate_demos_dir}"/. "${jailhouse_inmate_demos_dir}"/
+fi
 
 # Compile jailhouse (INPUT: kernel directory, installation directory)
 make -C "${jailhouse_dir}" ARCH="${ARCH}" CROSS_COMPILE="${CROSS_COMPILE}" KDIR="${linux_dir}" #ARCH=arm64 CROSS_COMPILE=${aarch64_buildroot_linux_gnu_dir}/aarch64-buildroot-linux-gnu-

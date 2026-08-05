@@ -74,7 +74,11 @@ output_dir=${backend_dir}/output
 hardware_dir=${output_dir}/hardware
 boot_dir=${output_dir}/boot
 rootfs_dir=${output_dir}/rootfs
-tftp_boot_dir=/home/tftpboot/${TARGET}-${BACKEND}
+# Repo-relative: inside the Docker image the project is bind-mounted on /home,
+# so this resolves to the same /home/tftpboot/... as before, but it also works
+# when the scripts are run natively (where /home is not writable).
+# Override TFTP_BOOT_ROOT to point at a real TFTP server directory instead.
+tftp_boot_dir=${TFTP_BOOT_ROOT:-${project_dir}/tftpboot}/${TARGET}-${BACKEND}
 # BUILD
 build_dir=${backend_dir}/build
 # CUSTOM BUILD
