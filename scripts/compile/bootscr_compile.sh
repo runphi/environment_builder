@@ -3,6 +3,7 @@
 usage() {
   echo -e "Usage: $0 \r\n \
   This script compile the bootscr for the specified <target> and <backend>:\r\n \
+    [-o <name> output file name in the boot directory (default: boot.scr)]\r\n \
     [-t <target>]\r\n \
     [-b <backend>]\r\n \
     [-h help]" 1>&2
@@ -13,8 +14,16 @@ curr_dir=$(dirname -- "$(readlink -f -- "$0")")
 script_dir=$(dirname "${curr_dir}")
 source "${script_dir}"/common/common.sh
 
-while getopts "t:b:h" o; do
+# Output name, so that alternative boot scripts (e.g. a TFTP/NFS variant built
+# with BOOTCMD_CONFIG="tftp") can be produced without overwriting the default
+# boot.scr and without having to rename the result by hand afterwards.
+OUTPUT_NAME="boot.scr"
+
+while getopts "o:t:b:h" o; do
   case "${o}" in
+  o)
+    OUTPUT_NAME=${OPTARG}
+    ;;
   t)
     TARGET=${OPTARG}
     ;;
@@ -37,13 +46,13 @@ source "${script_dir}"/common/set_environment.sh "${TARGET}" "${BACKEND}"
 
 if [ "${UBUNTU_ROOTFS}" == "y" ]; then
   echo "UBUNTU_ROOTFS"
-  mkimage -c none -A arm64 -T script -d "${boot_sources_dir}"/boot.script "${boot_dir}"/boot.scr.uimg
+  mkimage -c none -A arm64 -T script -d "${boot_sources_dir}"/boot.script "${boot_dir}"/"${OUTPUT_NAME}".uimg
 else
-  mkimage -c none -A arm64 -T script -d "${boot_sources_dir}"/"${bootcmd_file}" "${boot_dir}"/boot.scr
+  mkimage -c none -A arm64 -T script -d "${boot_sources_dir}"/"${bootcmd_file}" "${boot_dir}"/"${OUTPUT_NAME}"
 fi
 
 if [ $? -ne 0 ]; then
   echo "ERROR: Boot script compilation failed!"
   exit 1
 fi
-echo "Boot script compiled successfully!"
+echo "Boot script compiled successfully: ${boot_dir}/${OUTPUT_NAME}"
