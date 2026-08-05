@@ -138,7 +138,7 @@ fi
 
 # Install Jailhouse in the overlay filesystem
 if [[ "${INSTALL_OVERLAY,,}" =~ ^y(es)?$ ]]; then
-  make -C "${jailhouse_dir}" ARCH="${ARCH}" CROSS_COMPILE="${CROSS_COMPILE}" KDIR="${linux_dir}" DESTDIR="${project_dir}"/install install #ARCH=arm64 CROSS_COMPILE=${aarch64_buildroot_linux_gnu_dir}/aarch64-buildroot-linux-gnu-
+  make -C "${jailhouse_dir}" ARCH="${ARCH}" CROSS_COMPILE="${CROSS_COMPILE}" KDIR="${linux_dir}" DESTDIR="${install_dir}" install #ARCH=arm64 CROSS_COMPILE=${aarch64_buildroot_linux_gnu_dir}/aarch64-buildroot-linux-gnu-
   if [[ $? -ne 0 ]]; then
     echo "ERROR: The make command failed during the installation of JAILHOUSE"
     exit 1
