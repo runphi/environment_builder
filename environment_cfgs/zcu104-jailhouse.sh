@@ -69,7 +69,12 @@ BUILDROOT_CONFIG=""
 JAILHOUSE_BUILD="y"
 UPD_JAILHOUSE_COMPILE_ARGS=""
 JAILHOUSE_COMPILE_ARGS="-n -r all"
-JAILHOUSE_PATCH_ARGS=""
+# GICv2 SGI fix: without it Jailhouse silently drops guest IPIs whose interrupt ID
+# matches one already in a list register, ignoring the sender. That loses Linux
+# wakeup IPIs (SGI 1 = IPI_CALL_FUNC) and wedges the root cell with the RCU
+# grace-period kthread stuck in TASK_WAKING. Diagnosed 2026-08-06 on this board;
+# see runphi_testing/tacle-bench-jailhouse-APU-baremetal/BUG_jailhouse_lost_sgi.md
+JAILHOUSE_PATCH_ARGS="-p 0001-gicv2-do-not-drop-SGIs-from-different-senders.patch"
 JAILHOUSE_REPOSITORY="https://github.com/DanieleOttaviano/jailhouse.git"
 JAILHOUSE_BRANCH="master"
 JAILHOUSE_COMMIT=""

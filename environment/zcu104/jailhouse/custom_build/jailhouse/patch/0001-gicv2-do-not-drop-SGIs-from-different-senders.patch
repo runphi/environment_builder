@@ -1,0 +1,222 @@
+diff --git a/hypervisor/arch/arm-common/gic-v2.c b/hypervisor/arch/arm-common/gic-v2.c
+index 83811f1..1fb11bf 100755
+--- a/hypervisor/arch/arm-common/gic-v2.c
++++ b/hypervisor/arch/arm-common/gic-v2.c
+@@ -314,8 +314,63 @@ static int gicv2_inject_irq(u16 irq_id, u16 sender)
+ 
+ 		/* Check that there is no overlapping */
+ 		lr = gicv2_read_lr(n);
+-		if ((lr & GICH_LR_VIRT_ID_MASK) == irq_id)
+-			return -EEXIST;
++		if ((lr & GICH_LR_VIRT_ID_MASK) == irq_id) {
++			/*
++			 * For an SGI the source CPU is part of the interrupt's
++			 * identity, not incidental data: real GICv2 keeps SGI
++			 * pending state per source (GICD_SPENDSGIR/CPENDSGIR
++			 * are one byte per SGI, one bit per source CPU).
++			 * Matching on the virtual ID alone treats an SGI from a
++			 * *different* CPU as a duplicate and drops it --
++			 * irqchip_inject_pending() advances head on -EEXIST and
++			 * irqchip_set_pending() returns early, so nothing
++			 * retries it.
++			 *
++			 * That silently loses wakeup IPIs. Measured on this
++			 * board 2026-08-06: "cpu1 SGI 1 from cpu0 coalesced",
++			 * immediately followed by rcu_preempt stuck in
++			 * TASK_WAKING on cpu1 and an RCU stall -- SGI 1 is
++			 * IPI_CALL_FUNC, the IPI that makes a CPU drain its
++			 * ttwu wake_list.
++			 *
++			 * So only collapse an SGI onto an in-flight one when
++			 * the sender matches too. Distinct senders get their
++			 * own list register, or -EBUSY and the pending ring,
++			 * which retries correctly.
++			 */
++			if (!is_sgi(irq_id) ||
++			    ((lr >> GICH_LR_CPUID_SHIFT) & 0x7) ==
++			    (sender & 0x7)) {
++				/*
++				 * Same interrupt from the same source. On real
++				 * hardware setting the pending bit while the
++				 * interrupt is *active* (being serviced) leaves
++				 * it pending again, so it fires a second time
++				 * once the guest EOIs. Dropping it here instead
++				 * loses the second event -- the same failure as
++				 * above, just narrower: the guest has already
++				 * read this IRQ from IAR and will not look
++				 * again unless we re-arm it.
++				 *
++				 * List registers model exactly this with the
++				 * pending+active state, so use it.
++				 */
++				if ((lr & GICH_LR_ACTIVE_BIT) &&
++				    !(lr & GICH_LR_PENDING_BIT)) {
++					gicv2_write_lr(n,
++						       lr | GICH_LR_PENDING_BIT);
++					return 0;
++				}
++
++				/*
++				 * Already pending: genuine coalescing. Hardware
++				 * does the same -- a pending SGI from one source
++				 * is a single bit, so a second one before the
++				 * first is taken adds nothing.
++				 */
++				return -EEXIST;
++			}
++		}
+ 	}
+ 
+ 	if (first_free == -1)
+diff --git a/hypervisor/arch/arm-common/include/asm/irqchip.h b/hypervisor/arch/arm-common/include/asm/irqchip.h
+index 06401f9..0c2c719 100755
+--- a/hypervisor/arch/arm-common/include/asm/irqchip.h
++++ b/hypervisor/arch/arm-common/include/asm/irqchip.h
+@@ -76,6 +76,23 @@ struct pending_irqs {
+ 	unsigned int head;
+ 	/* removal from the ring happens lockless, thus tail is volatile */
+ 	volatile unsigned int tail;
++	/*
++	 * Interrupts discarded because the ring was full. Written under lock.
++	 * Non-zero means the guest has silently lost interrupts -- see the
++	 * comment in irqchip_set_pending().
++	 *
++	 * MEASURED 2026-08-06: stays 0 across a run that produced three RCU
++	 * stalls, so ring overflow is NOT the cause of the lost wakeups.
++	 */
++	unsigned int dropped;
++	/*
++	 * SGIs discarded because inject_irq() reported -EEXIST: an SGI with the
++	 * same interrupt ID was already in a list register. gicv2_inject_irq()
++	 * compares only the virtual ID and ignores the sender, while real GICv2
++	 * tracks SGI pending state per source CPU -- so two SGIs with the same
++	 * ID from different CPUs collapse into one and the second is lost.
++	 */
++	unsigned int sgi_coalesced;
+ };
+ 
+ int irqchip_cpu_init(struct per_cpu *cpu_data);
+diff --git a/hypervisor/arch/arm-common/irqchip.c b/hypervisor/arch/arm-common/irqchip.c
+index a4088fa..0b8cf54 100755
+--- a/hypervisor/arch/arm-common/irqchip.c
++++ b/hypervisor/arch/arm-common/irqchip.c
+@@ -243,6 +243,8 @@ void irqchip_set_pending(struct public_per_cpu *cpu_public, u16 irq_id)
+ 	struct pending_irqs *pending = &cpu_public->pending_irqs;
+ 	bool local_injection = (this_cpu_public() == cpu_public);
+ 	const u16 sender = this_cpu_id();
++	unsigned int dropped_now = 0;
++	u16 dropped_irq = 0;
+ 	unsigned int new_tail;
+ 
+ 	if (sdei_available) {
+@@ -250,8 +252,24 @@ void irqchip_set_pending(struct public_per_cpu *cpu_public, u16 irq_id)
+ 		return;
+ 	}
+ 
+-	if (local_injection && irqchip.inject_irq(irq_id, sender) != -EBUSY)
+-		return;
++	if (local_injection) {
++		int err = irqchip.inject_irq(irq_id, sender);
++
++		if (err != -EBUSY) {
++			/* Same -EEXIST coalescing as in irqchip_inject_pending(). */
++			if (err == -EEXIST && is_sgi(irq_id)) {
++				unsigned int n = ++pending->sgi_coalesced;
++
++				if (n == 1 || n % 1000 == 0)
++					printk("WARN: cpu%u SGI %u from cpu%u "
++					       "coalesced on local inject, dropped "
++					       "(%u so far)\n",
++					       cpu_public->cpu_id, irq_id,
++					       sender, n);
++			}
++			return;
++		}
++	}
+ 
+ 	spin_lock(&pending->lock);
+ 
+@@ -267,6 +285,26 @@ void irqchip_set_pending(struct public_per_cpu *cpu_public, u16 irq_id)
+ 		 */
+ 		memory_barrier();
+ 		pending->tail = new_tail;
++	} else {
++		/*
++		 * Ring full: the interrupt is LOST, silently, with no way for
++		 * the guest to know. For a device IRQ that is bad enough; for a
++		 * guest-to-guest SGI it corrupts the guest's own synchronisation.
++		 *
++		 * This is how the ZCU104 TACLeBench campaign wedged: Linux sends
++		 * a wakeup IPI via ttwu_queue_wakelist() -> GICD_SGIR ->
++		 * gic_handle_sgir_write() -> here. Drop it and the target CPU
++		 * never drains its wake_list, so the woken task stays in
++		 * TASK_WAKING forever. When that task is rcu_preempt, RCU grace
++		 * periods stop advancing and the board dies with
++		 * "rcu_preempt kthread timer wakeup didn't happen".
++		 *
++		 * Counted, not fixed: recovering here would mean blocking in
++		 * IRQ context. Workaround on the Linux side is NO_TTWU_QUEUE.
++		 */
++		pending->dropped++;
++		dropped_now = pending->dropped;
++		dropped_irq = irq_id;
+ 	}
+ 
+ 	/*
+@@ -275,6 +313,15 @@ void irqchip_set_pending(struct public_per_cpu *cpu_public, u16 irq_id)
+ 	 */
+ 	spin_unlock(&pending->lock);
+ 
++	/*
++	 * Reported outside the lock: printk takes a lock of its own. Rate
++	 * limited because once the ring overflows it tends to keep overflowing.
++	 */
++	if (dropped_now && (dropped_now == 1 || dropped_now % 256 == 0))
++		printk("WARN: cpu%u pending-IRQ ring full, %u dropped so far "
++		       "(last irq %u, sender cpu%u)\n",
++		       cpu_public->cpu_id, dropped_now, dropped_irq, sender);
++
+ 	/*
+ 	 * The list registers are full, trigger maintenance interrupt if we are
+ 	 * on the target CPU. In the other case, send SGI_INJECT to the target
+@@ -292,10 +339,13 @@ void irqchip_inject_pending(void)
+ 	u16 irq_id, sender;
+ 
+ 	while (pending->head != pending->tail) {
++		int err;
++
+ 		irq_id = pending->irqs[pending->head];
+ 		sender = pending->sender[pending->head];
+ 
+-		if (irqchip.inject_irq(irq_id, sender) == -EBUSY) {
++		err = irqchip.inject_irq(irq_id, sender);
++		if (err == -EBUSY) {
+ 			/*
+ 			 * The list registers are full, trigger maintenance
+ 			 * interrupt and leave.
+@@ -303,6 +353,25 @@ void irqchip_inject_pending(void)
+ 			irqchip.enable_maint_irq(true);
+ 			return;
+ 		}
++		/*
++		 * -EEXIST means an SGI with this ID is already in a list
++		 * register. We advance head anyway, i.e. this SGI is dropped.
++		 * gicv2_inject_irq() matches on the virtual ID alone and
++		 * ignores the sender, so an SGI from a *different* CPU is
++		 * treated as a duplicate of one already queued. Real GICv2
++		 * keeps SGI pending state per source CPU. Count it: if a
++		 * wakeup IPI is swallowed here the target never re-runs
++		 * sched_ttwu_pending() and the woken task stays TASK_WAKING.
++		 */
++		if (err == -EEXIST && is_sgi(irq_id)) {
++			unsigned int n = ++pending->sgi_coalesced;
++
++			if (n == 1 || n % 1000 == 0)
++				printk("WARN: cpu%u SGI %u from cpu%u coalesced "
++				       "into an in-flight SGI, dropped (%u so far)\n",
++				       this_cpu_public()->cpu_id, irq_id,
++				       sender, n);
++		}
+ 
+ 		/*
+ 		 * Ensure that the entry was read before updating the head

@@ -31,10 +31,23 @@ setenv fdt_addr    0x00100000
 
 # ---------- kernel command line ----------
 # CPU 3 only: the inmate cell runs there and the root cell needs 0-2.
-# The nohz, prefix and nohz_full / rcu_nocbs require CONFIG_NO_HZ_FULL,
-# which the defconfig sets; without it the kernel rejects the whole
-# isolcpus parameter and silently isolates nothing.
-setenv isolargs "isolcpus=nohz,domain,managed_irq,3 nohz_full=3 rcu_nocbs=3 rcu_nocb_poll skew_tick=1 deferred_probe_timeout=1 earlycon clk_ignore_unused"
+#
+# 2026-08-05: nohz_full=3 / rcu_nocbs=3 / rcu_nocb_poll REMOVED, and the "nohz,"
+# prefix with them. They were added on the assumption that CPU 3 is a latency-
+# sensitive Linux CPU. It is not: Jailhouse hotplugs CPU 3 out and runs the
+# inmate there, so for almost the whole campaign CPU 3 is offline as far as
+# Linux is concerned. Consequences of setting them anyway:
+#   - nohz_full=3 governs tickless execution of Linux *userspace* on that CPU.
+#     No Linux userspace ever runs there, so it buys nothing.
+#   - rcu_nocbs=3 offloads CPU 3's RCU callbacks to rcuo kthreads that run on
+#     the housekeeping CPUs -- 0-2, precisely the cores whose interference the
+#     experiment measures.
+#   - rcu_nocb_poll makes those kthreads poll instead of sleeping, i.e. adds a
+#     permanently runnable task to a 3-CPU set already saturated by stressors.
+# Empirically the Jailhouse+stressor wedge went from ~2-6 min to 20-45 s when
+# these were introduced. Reverting to the parameter set under which baseline,
+# fork4 and open4 completed 52/52.
+setenv isolargs "isolcpus=domain,managed_irq,3 skew_tick=1 deferred_probe_timeout=1 earlycon clk_ignore_unused"
 
 echo "------------------------------------------------------------"
 echo "TFTP: ${serverip}:${tftppath} -> kernel ${kernel_addr}, dtb ${fdt_addr}"

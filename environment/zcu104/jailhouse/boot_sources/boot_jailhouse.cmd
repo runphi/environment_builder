@@ -24,24 +24,26 @@ do
 			exit;
 		fi
 		if test -e ${devtype} ${devnum}:${distro_bootpart} /Image; then
-			# NOTE: nohz/nohz_full/rcu_nocbs/nosoftlockup/nowatchdog are no-ops here;
-			# they need a kernel with NO_HZ_FULL / RCU_NOCB_CPU / lockup detector
 			# CPU 3 only: the inmate cell (zynqmp-zcu104-APU-inmate-demo.cell) runs
 			# there, and the root cell needs 0-2 for the interference workload.
-			# The "nohz," prefix and the nohz_full / rcu_nocbs parameters are only
-			# legal because the defconfig now sets CONFIG_NO_HZ_FULL (which selects
-			# RCU_NOCB_CPU); with NO_HZ_FULL off the kernel rejects the whole
-			# isolcpus parameter and silently isolates nothing.
-			# processor.max_cstate / processor_idle.max_cstate are x86-only, omitted.
 			# deferred_probe_timeout works around a dead i2c mux on this board.
-			# NOTE: keep "=" out of these comments so that the boot.scr
-			# verification grep in HANDOFF/DEMO still matches only the real line.
+			# processor.max_cstate / processor_idle.max_cstate are x86-only, omitted.
 			# nosoftlockup / nowatchdog are omitted on purpose: this defconfig has
 			# CONFIG_SOFTLOCKUP_DETECTOR unset, so the kernel does not register
 			# those parameters and reports them under "Unknown kernel command line
 			# parameters". They are no-ops here; the KV260 cmdline carries them
 			# only because that config enables the lockup detector.
-			setenv bootargs "isolcpus=nohz,domain,managed_irq,3 nohz_full=3 rcu_nocbs=3 rcu_nocb_poll skew_tick=1 deferred_probe_timeout=1 earlycon clk_ignore_unused root=/dev/mmcblk0p2 rw rootwait"
+			# NOTE: keep "=" out of these comments so that the boot.scr
+			# verification grep in HANDOFF/DEMO still matches only the real line.
+			#
+			# 2026-08-05: nohz_full / rcu_nocbs / rcu_nocb_poll removed, and the
+			# "nohz," prefix with them. Jailhouse hotplugs CPU 3 out and runs the
+			# inmate there, so no Linux userspace ever runs on it: nohz_full for
+			# that CPU buys nothing, rcu_nocbs pushes its RCU callbacks onto the
+			# housekeeping CPUs 0-2 that the experiment measures, and rcu_nocb_poll
+			# adds a permanently runnable kthread to those same three cores. The
+			# Jailhouse+stressor wedge got markedly faster when they were added.
+			setenv bootargs "isolcpus=domain,managed_irq,3 skew_tick=1 deferred_probe_timeout=1 earlycon clk_ignore_unused root=/dev/mmcblk0p2 rw rootwait"
 			setenv uenvcmd "fatload mmc 0 0x3000000 Image && fatload mmc 0 0x2A00000 system.dtb && booti 0x3000000 - 0x2A00000"
 			setenv bootcmd "run uenvcmd"
 			fatload ${devtype} ${devnum}:${distro_bootpart} ${kernel_addr} Image;
