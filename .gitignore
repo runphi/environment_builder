@@ -15,3 +15,11 @@ environment/*/*/install/root/tests/test_omnivisor_guest/experiments/boot_exp/inm
 environment/*/*/install/root/tests/test_omnivisor_guest/experiments/boot_exp/inmates/RISCV/*
 scripts/common/current_environment.sh
 runPHI/rust_runphi/target/*
+
+# Session handoff notes, not part of the environment definition
+HANDOFF_*.md
+# Home-directory file created by the docker build environment
+.bashrc
+# Local revert points made while changing configs / images
+*.pre-scheddebug.bak
+tftpboot/*/Image.*.bak
