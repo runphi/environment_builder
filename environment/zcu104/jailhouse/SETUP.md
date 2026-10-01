@@ -168,3 +168,91 @@ with a different config, NFS root needs all of these built in (`=y`, not `=m`):
 ```
 CONFIG_NFS_FS  CONFIG_NFS_V3  CONFIG_ROOT_NFS  CONFIG_IP_PNP  CONFIG_MACB
 ```
+
+---
+
+## MAC addresses with more than one board
+
+Every ZCU104 running these images comes up with the same MAC address,
+`00:0a:35:00:22:01` (the Xilinx default). With a single board that is fine.
+With two or more boards on the same L2 segment, the switch can only keep one
+forwarding entry for that MAC. It points that entry at whichever board sent a
+frame most recently and drops traffic meant for the others. The symptom is SSH
+sessions that hang and then resume, worst when you use several boards at once,
+and `ping` showing one board up and another 100% lost, alternating between them.
+
+To check, run this from any host on the same network for each board:
+
+```sh
+arping -c 2 -I <iface> <board-ip>
+```
+
+If two boards report the same MAC, they collide.
+
+### Where the MAC comes from
+
+The MAC does not come from the device tree. At boot, U-Boot's `fdt_fixup_ethernet()`
+rewrites the `local-mac-address` property of the node aliased as `ethernet0`,
+using its saved `ethaddr` environment variable. It does this on whichever DTB it
+loaded, from SD or TFTP. So `ethaddr` in the U-Boot environment takes priority
+over the `local-mac-address` in `boot_sources/*.dts`, and editing the DTS changes
+nothing.
+
+This U-Boot is built without `CONFIG_ENV_OVERWRITE`, so you cannot change `ethaddr`
+from the U-Boot prompt either:
+
+```
+setenv ethaddr <new-mac>    ## Error: Can't overwrite "ethaddr"
+env delete ethaddr          ## Error: Can't delete "ethaddr"
+```
+
+### Giving a board its own MAC
+
+The environment is a plain file, `uboot-redund.env`, on the FAT boot partition
+(`/boot/firmware` on the target). It starts with a little-endian CRC32 covering
+everything from byte 5 onwards, then a one-byte flags field, then NUL-separated
+`key=value` entries. If you patch the file offline, U-Boot loads the new value at
+startup. The overwrite protection only blocks changes made at runtime.
+
+Use a locally administered address, meaning the first octet has bit 1 set, for
+example `02:...`. That way it cannot clash with a real vendor's OUI. Keep it the
+same length as the original so nothing else in the file moves:
+
+```python
+import zlib, struct
+NEW_MAC = b"02:0a:35:00:22:02"   # pick a different one for each board
+d = bytearray(open("uboot-redund.env", "rb").read())
+assert struct.unpack("<I", d[:4])[0] == zlib.crc32(bytes(d[5:])) & 0xffffffff
+old = b"ethaddr=00:0a:35:00:22:01"
+new = b"ethaddr=" + NEW_MAC
+assert len(old) == len(new) and d.count(old) == 1
+i = d.index(old)
+d[i:i + len(old)] = new
+d[0:4] = struct.pack("<I", zlib.crc32(bytes(d[5:])) & 0xffffffff)
+open("uboot-redund.env.new", "wb").write(bytes(d))
+```
+
+The first `assert` checks that the CRC layout above matches your file before
+anything changes. Next, copy the result into place on the target. Keep a backup
+and remount the partition read-only straight after: an unclean shutdown while it
+is writable corrupts `BOOT.BIN`/`Image`/`boot.scr`.
+
+```sh
+mount -o remount,rw /boot/firmware
+cp /boot/firmware/uboot-redund.env /boot/firmware/uboot-redund.env.bak
+# ... write the new file, check its md5 ...
+sync
+mount -o remount,ro /boot/firmware
+```
+
+Reboot, then confirm with `ifconfig eth0` on the board or `arping` from another
+host. On the next boot U-Boot prints
+`Warning: ethernet@ff0e0000 MAC addresses don't match:`. You can ignore it. U-Boot
+is comparing `ethaddr` with the MAC in its own built-in control device tree, and
+it uses `ethaddr`.
+
+> [!NOTE]
+> A broken environment does not stop the board from booting. U-Boot falls back to
+> its built-in default environment, which still finds `boot.scr` on the SD card.
+> Keep a serial console attached (UART0, 115200 8N1) while doing this, so you can
+> recover if the board does not come back on the network.
