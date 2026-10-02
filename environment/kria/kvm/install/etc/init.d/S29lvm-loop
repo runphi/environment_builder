@@ -1,0 +1,62 @@
+#!/bin/sh
+#
+# Volume group for the LVM-backed guest disks of runPHI backend_kvm
+# ("disk_type": "lvm"), which allocates one logical volume per container from
+# test-vg (its default; /usr/share/runPHI/kvm_lvm_vg overrides the name).
+#
+# The root filesystem is on NFS, which cannot hold a physical volume, so the VG
+# lives in a file on the SD card (mounted on /mnt/sd by /etc/fstab) attached
+# through a loop device. That attachment does not survive a reboot: this script
+# redoes it and activates the VG at boot, and undoes both at shutdown.
+#
+# One-time creation, on the board:
+#   mkdir -p /mnt/sd/runphi && fallocate -l 6G /mnt/sd/runphi/lvm.img
+#   losetup -f /mnt/sd/runphi/lvm.img
+#   pvcreate /dev/loopN && vgcreate test-vg /dev/loopN
+
+NAME=lvm-loop
+IMAGE=/mnt/sd/runphi/lvm.img
+VG=test-vg
+
+# Loop device the image is attached to, if any
+loop_dev() {
+	losetup -a 2>/dev/null | grep "$IMAGE" | cut -d: -f1
+}
+
+do_start() {
+	echo -n "Starting $NAME: "
+	if [ ! -f "$IMAGE" ]; then
+		echo "SKIP (no $IMAGE)"
+		return 0
+	fi
+	if [ -z "$(loop_dev)" ] && ! losetup -f "$IMAGE"; then
+		echo "FAIL (losetup)"
+		return 1
+	fi
+	vgchange -ay "$VG" >/dev/null 2>&1 && echo "OK" || echo "FAIL (vgchange $VG)"
+}
+
+do_stop() {
+	echo -n "Stopping $NAME: "
+	vgchange -an "$VG" >/dev/null 2>&1
+	dev=$(loop_dev)
+	[ -n "$dev" ] && losetup -d "$dev"
+	echo "OK"
+}
+
+case "$1" in
+	start)
+		do_start
+		;;
+	stop)
+		do_stop
+		;;
+	restart)
+		do_stop
+		sleep 1
+		do_start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+esac

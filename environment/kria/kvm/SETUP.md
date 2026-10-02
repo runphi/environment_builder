@@ -59,6 +59,8 @@ The kria-jailhouse rootfs plus:
 - `libvirt` with `libvirtd` and the QEMU driver (`virsh`, `S91virtlogd`, `S92libvirtd`)
 - `qemu` system emulation, aarch64 target only, with SLIRP (`"net": "user"`)
 - `lvm2`, `e2fsprogs` (`lvcreate`, `mkfs.ext4`)
+- `procps-ng`: backend_kvm finds the QEMU process with `pgrep -f`, which the
+  default busybox does not provide
 - `eudev` for `/dev` management: libvirt requires udev, so this replaces the
   plain devtmpfs used by the other Kria environments
 
@@ -70,6 +72,39 @@ The kria-jailhouse rootfs plus:
 - `boot_tftp.cmd` (default): kernel and DTB from `tftpboot/kria-kvm/` on
   192.168.100.45, NFS root from `output/rootfs/kria`, SD fallback.
 - `boot.cmd`: SD card boot.
+
+### Board setup (`install/` overlay)
+
+Everything in `install/` ends up in the rootfs, both through buildroot
+(`BR2_ROOTFS_OVERLAY`) and through `setup_nfs_rootfs.sh`, so it survives a
+rebuild or a re-extraction of the NFS root:
+
+- `root/.profile` (the same prompt and aliases as the zcu104 rootfs)
+- `root/.ssh/authorized_keys`: not in git (`install/root/.ssh/` is ignored);
+  put the public key of your own PC there before building or deploying, or
+  the board only accepts the password login
+- `etc/fstab`: buildroot's default plus the SD card's second partition,
+  `/dev/mmcblk1p2` (the old SD rootfs, ext4), on `/mnt/sd`. Everything that
+  needs a local disk lives in `/mnt/sd/runphi/`.
+- `etc/docker/daemon.json`: Docker storage in `/mnt/sd/runphi/docker` with
+  `overlay2`. overlay2 cannot use NFS (no whiteouts/xattrs), and without an
+  explicit `storage-driver` Docker silently falls back to the slow `vfs`.
+- `etc/init.d/S29lvm-loop`: the `test-vg` volume group used by backend_kvm for
+  `"disk_type": "lvm"` lives in `/mnt/sd/runphi/lvm.img` (6 GB), because a
+  physical volume cannot live on NFS. The script attaches it through a loop
+  device and activates the VG at boot, and undoes both at shutdown.
+
+The volume group itself is created once, on the board (also in the script
+header):
+
+```sh
+mkdir -p /mnt/sd/runphi && fallocate -l 6G /mnt/sd/runphi/lvm.img
+losetup -f /mnt/sd/runphi/lvm.img
+pvcreate /dev/loop0 && vgcreate test-vg /dev/loop0   # the device losetup -a shows
+```
+
+To grow it later: stop the containers, enlarge the file (`fallocate -l 10G`),
+then `losetup -c /dev/loop0 && pvresize /dev/loop0`.
 
 ## Build
 
@@ -95,6 +130,24 @@ Then populate the NFS root on the server, as for the other environments:
 ```sh
 sudo ./scripts/remote/setup_nfs_rootfs.sh -t kria -b kvm
 ```
+
+### Updating the rootfs of a running board
+
+`setup_nfs_rootfs.sh -f` re-extracts every file of `rootfs.tar`. Over NFS, a
+program whose file is replaced on the server gets "stale file handle" errors,
+so only do that while the board is not running from the NFS root. On a running
+board, stage the new rootfs and copy only the files whose content changed,
+leaving the state that the board manages itself alone (dropbear host keys,
+libvirt's own files); as root on the server, in `output/rootfs/`:
+
+```sh
+mkdir staging && tar xf rootfs.tar -C staging
+rsync -a --checksum --exclude=/etc/dropbear --exclude=/etc/libvirt/ --exclude=/var/lib/libvirt/ staging/ kria/
+rm -rf staging
+```
+
+then apply the overlay with `setup_nfs_rootfs.sh -t kria -b kvm -o` and reboot
+the board.
 
 ## Verify the KVM host
 

@@ -1,0 +1,4 @@
+{
+  "data-root": "/mnt/sd/runphi/docker",
+  "storage-driver": "overlay2"
+}
