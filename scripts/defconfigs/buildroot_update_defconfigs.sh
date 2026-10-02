@@ -7,6 +7,7 @@ usage() {
     [-t <target>]\r\n \
     [-b <backend>]\r\n \
     [-x update busybox config]\r\n \
+    [-s strict: fail if the defconfig has options that Kconfig dropped]\r\n \
     [-y assume yes, do not prompt]\r\n \
     [-h help]" 1>&2
   exit 1
@@ -16,6 +17,7 @@ usage() {
 current_dir=$(dirname -- "$(readlink -f -- "$0")")
 script_dir=$(dirname "${current_dir}")
 source "${script_dir}"/common/common.sh
+source "${script_dir}"/common/check_defconfig.sh
 
 # By default no menuconfig
 MENUCFG=0
@@ -24,7 +26,10 @@ UPDATE_BUSYBOX=n
 # Answer the confirmation prompt automatically (for non-interactive builds)
 ASSUME_YES=0
 
-while getopts "ymt:b:xh" o; do
+# Fail if Kconfig drops options of the defconfig (-s)
+STRICT=0
+
+while getopts "ymt:b:xsh" o; do
   case "${o}" in
   y)
     ASSUME_YES=1
@@ -41,6 +46,9 @@ while getopts "ymt:b:xh" o; do
   x)
     UPDATE_BUSYBOX=y
     ;;
+  s)
+    STRICT=1
+    ;;
   h)
     usage
     ;;
@@ -56,10 +64,10 @@ source "${script_dir}"/common/set_environment.sh "${TARGET}" "${BACKEND}"
 
 # ASK user if he really wants to update
 if [[ ${ASSUME_YES} -eq 1 ]]; then
-  echo "Updating ${defconfig_builroot_name} (-y given, not asking)"
+  echo "Updating ${defconfig_buildroot_name} (-y given, not asking)"
   UPDATE="y"
 else
-  read -r -p "Do you really want to update "${defconfig_builroot_name}" (your current configs will be lost)? (y/n): " UPDATE
+  read -r -p "Do you really want to update "${defconfig_buildroot_name}" (your current configs will be lost)? (y/n): " UPDATE
 fi
 
 # Update!
@@ -81,6 +89,16 @@ if [[ "${UPDATE,,}" =~ ^y(es)?$ ]]; then
     exit 1
   fi
   echo "BUILDROOT has been successfully configured"
+
+  # Options of the defconfig that Kconfig dropped (unmet dependency, missing
+  # patch, unknown symbol). Fatal with -s, a warning otherwise.
+  if ! check_defconfig "${custom_buildroot_config_dir}/${defconfig_buildroot_name}" "${buildroot_dir}/.config"; then
+    if [[ ${STRICT} -eq 1 ]]; then
+      echo "ERROR: the options above of ${defconfig_buildroot_name} were dropped by Kconfig"
+      exit 1
+    fi
+    echo "WARNING: the options above of ${defconfig_buildroot_name} were dropped by Kconfig"
+  fi
 
   if [[ "${UPDATE_BUSYBOX,,}" =~ ^y(es)?$ ]]; then
     # UPDATE BUSYBOX

@@ -8,6 +8,7 @@ usage() {
     [-b <backend>]\r\n \
     [-c <config_file>]\r\n \
     [-l list available configs for the selected environment and exit]\r\n \
+    [-s strict: fail if the defconfig has options that Kconfig dropped]\r\n \
     [-y assume yes, do not prompt]\r\n \
     [-h help]" 1>&2
   exit 1
@@ -17,6 +18,7 @@ usage() {
 current_dir=$(dirname -- "$(readlink -f -- "$0")")
 script_dir=$(dirname "${current_dir}")
 source "${script_dir}"/common/common.sh
+source "${script_dir}"/common/check_defconfig.sh
 
 # By default no menuconfig
 MENUCFG=0
@@ -26,7 +28,10 @@ LIST_ONLY=0
 # Answer the confirmation prompt automatically (for non-interactive builds)
 ASSUME_YES=0
 
-while getopts "ymt:b:c:lh" o; do
+# Fail if Kconfig drops options of the defconfig (-s)
+STRICT=0
+
+while getopts "ymt:b:c:lsh" o; do
   case "${o}" in
   y)
     ASSUME_YES=1
@@ -45,6 +50,9 @@ while getopts "ymt:b:c:lh" o; do
       ;;
     l)
       LIST_ONLY=1
+      ;;
+    s)
+      STRICT=1
       ;;
     h)
       usage
@@ -132,6 +140,17 @@ if [[ "${UPDATE,,}" =~ ^y(es)?$ ]]; then
     exit 1
   fi
   echo "LINUX KERNEL has been successfully configured"
+
+  # Options of the defconfig that Kconfig dropped (unmet dependency, missing
+  # patch, unknown symbol), e.g. PREEMPT_RT without the preempt_rt patch.
+  # Fatal with -s, a warning otherwise.
+  if ! check_defconfig "${custom_linux_config_dir}/${CONFIG_TO_COPY}" "${linux_dir}/.config"; then
+    if [[ ${STRICT} -eq 1 ]]; then
+      echo "ERROR: the options above of ${CONFIG_TO_COPY} were dropped by Kconfig"
+      exit 1
+    fi
+    echo "WARNING: the options above of ${CONFIG_TO_COPY} were dropped by Kconfig"
+  fi
 
   # Start Menuconfig
   if [[ ${MENUCFG} -eq 1 ]]; then

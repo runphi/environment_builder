@@ -339,6 +339,10 @@ if [[ ${LINUX_BUILD,,} =~ ^y(es)?$ ]]; then
   fi
   echo "Updating LINUX configuration ..."
   yes "y" | bash "${script_dir}"/defconfigs/linux_update_defconfigs.sh ${UPD_LINUX_COMPILE_ARGS}
+  if [[ $? -ne 0 ]]; then
+    echo "LINUX configuration failed. Exiting..."
+    exit 1
+  fi
   echo "Compiling the LINUX kernel ..."
   yes "y" | bash "${script_dir}"/compile/linux_compile.sh ${LINUX_COMPILE_ARGS}
   if [[ $? -eq 1 ]]; then
@@ -359,6 +363,10 @@ if [[ ${BUILDROOT_BUILD,,} =~ ^y(es)?$ ]]; then
   fi
   echo "Updating BUILDROOT configuration ..."
   yes "y" | bash "${script_dir}"/defconfigs/buildroot_update_defconfigs.sh ${UPD_BUILDROOT_COMPILE_ARGS}
+  if [[ $? -ne 0 ]]; then
+    echo "BUILDROOT configuration failed. Exiting..."
+    exit 1
+  fi
   echo "Compiling the rootfs with BUILDROOT ..."
   yes "y" | bash "${script_dir}"/compile/buildroot_compile.sh ${BUILDROOT_COMPILE_ARGS}
   if [[ $? -eq 1 ]]; then
