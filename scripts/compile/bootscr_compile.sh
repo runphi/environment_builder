@@ -3,6 +3,7 @@
 usage() {
   echo -e "Usage: $0 \r\n \
   This script compile the bootscr for the specified <target> and <backend>:\r\n \
+    [-c <config> compile boot_<config>.cmd instead of the BOOTCMD_CONFIG one]\r\n \
     [-o <name> output file name in the boot directory (default: boot.scr)]\r\n \
     [-t <target>]\r\n \
     [-b <backend>]\r\n \
@@ -19,8 +20,15 @@ source "${script_dir}"/common/common.sh
 # boot.scr and without having to rename the result by hand afterwards.
 OUTPUT_NAME="boot.scr"
 
-while getopts "o:t:b:h" o; do
+# Boot script to compile, when not the one selected by BOOTCMD_CONFIG in the
+# environment configuration (e.g. both boot_sd.cmd and boot_tftp.cmd).
+CONFIG_OVERRIDE=""
+
+while getopts "c:o:t:b:h" o; do
   case "${o}" in
+  c)
+    CONFIG_OVERRIDE=${OPTARG}
+    ;;
   o)
     OUTPUT_NAME=${OPTARG}
     ;;
@@ -43,6 +51,10 @@ shift $((OPTIND - 1))
 
 # Set the Environment
 source "${script_dir}"/common/set_environment.sh "${TARGET}" "${BACKEND}"
+
+if [[ -n "${CONFIG_OVERRIDE}" ]]; then
+  bootcmd_file=boot_${CONFIG_OVERRIDE}.cmd
+fi
 
 if [ "${UBUNTU_ROOTFS}" == "y" ]; then
   echo "UBUNTU_ROOTFS"
