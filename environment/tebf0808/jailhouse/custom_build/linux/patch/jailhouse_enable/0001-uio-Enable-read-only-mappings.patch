@@ -6,17 +6,22 @@ Subject: [PATCH 01/43] uio: Enable read-only mappings
 This allows to tag memory regions read-only, denying userspace to map
 them writable. Default remains read/write.
 
+[environment_builder: retargeted from drivers/uio/uio.c to
+ drivers/uio/uio_core.c, which is what linux-xlnx calls the UIO core. Without
+ this only the uio_driver.h hunk applied, so the readonly flag existed but was
+ never enforced.]
+
 Signed-off-by: Jan Kiszka <jan.kiszka@siemens.com>
 ---
- drivers/uio/uio.c          | 9 +++++++++
+ drivers/uio/uio_core.c     | 9 +++++++++
  include/linux/uio_driver.h | 2 ++
  2 files changed, 11 insertions(+)
 
-diff --git a/drivers/uio/uio.c b/drivers/uio/uio.c
-index e55e8cef8..e01d87da9 100644
---- a/drivers/uio/uio.c
-+++ b/drivers/uio/uio.c
-@@ -792,6 +792,15 @@ static int uio_mmap(struct file *filep, struct vm_area_struct *vma)
+diff --git a/drivers/uio/uio_core.c b/drivers/uio/uio_core.c
+index e51a7e987..b61d99bcd 100644
+--- a/drivers/uio/uio_core.c
++++ b/drivers/uio/uio_core.c
+@@ -834,6 +834,15 @@ static int uio_mmap(struct file *filep, struct vm_area_struct *vma)
  		goto out;
  	}
  
@@ -52,6 +57,3 @@ index 47c5962b8..e7a101e47 100644
  	void __iomem		*internal_addr;
  	struct uio_map		*map;
  };
--- 
-2.34.1
-
