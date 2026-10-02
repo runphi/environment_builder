@@ -98,9 +98,12 @@ fi
 # Apply the environment's install overlay on top, forcing root ownership: the
 # repository is normally checked out as an unprivileged user, so the files carry
 # that uid/gid and would otherwise end up owned by a random uid on the target.
+# Group/other write permission is stripped too: rsync -a also copies directory
+# modes, and a clone made with umask 002 would turn /root (and /, /etc, ...)
+# group-writable, after which dropbear refuses every key login.
 if [ -d "${install_dir}" ]; then
   echo "Applying the install overlay from ${install_dir} ..."
-  rsync -a --chown=root:root "${install_dir}"/ "${NFS_ROOT}"/
+  rsync -a --chown=root:root --chmod=go-w "${install_dir}"/ "${NFS_ROOT}"/
   if [ $? -ne 0 ]; then
     echo "ERROR: applying the install overlay failed!"
     exit 1
