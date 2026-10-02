@@ -277,8 +277,10 @@ virsh create smoke.xml && virsh console smoke
 
 runPHI runs a container as a KVM guest when its image has a
 `/boot/config.json` (see `doc/backend_kvm_docs/` in runphi_manager), and hands
-any other container to `runc`. It is installed by the overlay; with the files
-from the [smoke test](#smoke-test):
+any other container to `runc`. [RUNPHI.md](RUNPHI.md) is the complete guide:
+how runPHI drives the guests, every `/boot/config.json` field and `docker run`
+option, and tests to run by hand. It is installed by the overlay; with the
+files from the [smoke test](#smoke-test):
 
 ```sh
 mkdir -p /tmp/img/boot && cd /tmp/img && cp /root/guest/Image /root/guest/rootfs.cpio.gz boot/
