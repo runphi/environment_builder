@@ -1,0 +1,16 @@
+# Static address, the same in both boot modes:
+# - booted from the SD card, ifup configures eth0 with it (the gateway also
+#   serves DHCP, through dhcpcd, but with dynamic addresses);
+# - with an NFS root, nfs_check makes ifup leave eth0 alone: the kernel has
+#   already configured it from the ip= argument of boot_tftp.cmd, and taking it
+#   down would cut off the root filesystem.
+
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet static
+  pre-up /etc/network/nfs_check
+  address 192.168.100.46
+  netmask 255.255.255.0
+  gateway 192.168.100.254

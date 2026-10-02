@@ -1,13 +1,11 @@
 #---------------------------------------------------------------
 # boot_tftp.cmd - Kria KV260 / KVM: TFTP kernel+DTB, NFS-root rootfs
 #
-# Build with scripts/compile/bootscr_compile.sh (BOOTCMD_CONFIG="tftp"),
-# or by hand:
-#   mkimage -A arm64 -O linux -T script -C none -d boot_tftp.cmd boot.scr
-#
-# Put the resulting boot.scr on the FAT partition of the SD card (U-Boot's
-# distro boot runs it), or start it by hand from the U-Boot prompt (it must
-# then also be in tftpboot/kria-kvm/):
+# Build with scripts/compile/bootscr_compile.sh -c tftp -o boot_tftp.scr
+# /root/boot_mode.sh on the board selects this script or boot_sd.scr as the
+# boot.scr of the SD card's FAT partition (U-Boot's distro boot runs it).
+# It can also be started by hand from the U-Boot prompt (from
+# tftpboot/kria-kvm/boot.scr):
 #   setenv ipaddr 192.168.100.46; setenv serverip 192.168.100.45
 #   tftpboot ${scriptaddr} kria-kvm/boot.scr; source ${scriptaddr}
 #
@@ -16,7 +14,8 @@
 #---------------------------------------------------------------
 
 # ---------- network parameters ----------
-# No DHCP server on the lab network, so everything is static.
+# Static, so that the board is always at the same address. (The gateway does
+# serve DHCP, but with dynamic addresses.)
 setenv ipaddr     192.168.100.46          # the board (kriakv260)
 setenv serverip   192.168.100.45          # TFTP + NFS server
 setenv gatewayip  192.168.100.254
@@ -62,13 +61,24 @@ else
 fi
 
 # ---------- fallback: boot from the SD card ----------
-# On the KV260 the SD card is mmc 1 in U-Boot (mmcblk1 in Linux).
+# Same as boot_sd.cmd: the SD card holds the same kernel and DTB and a copy of
+# the rootfs. Distro boot sets devtype/devnum/distro_bootpart when it runs this
+# script from the SD card; started by hand, the SD card is mmc 1 on the KV260
+# (mmcblk1 in Linux).
 echo "------------------------------------------------------------"
 echo "Falling back to SD card boot ..."
-if load mmc 1:1 ${kernel_addr} Image; then
-	load mmc 1:1 ${fdt_addr} system.dtb
-	setenv bootargs "${baseargs} ${isolargs} root=/dev/mmcblk1p2 rw rootwait"
-	booti ${kernel_addr} - ${fdt_addr}
+if test -z "${devtype}"; then
+	setenv devtype mmc
+	setenv devnum 1
+	setenv distro_bootpart 1
+fi
+if load ${devtype} ${devnum}:${distro_bootpart} ${kernel_addr} Image; then
+	if load ${devtype} ${devnum}:${distro_bootpart} ${fdt_addr} system.dtb; then
+		fdt addr ${fdt_addr}
+		fdt resize 0x10000
+		setenv bootargs "${baseargs} ${isolargs} root=/dev/mmcblk1p2 rw rootwait"
+		booti ${kernel_addr} - ${fdt_addr}
+	fi
 fi
 
 echo "No boot path succeeded; resetting in 5s ..."

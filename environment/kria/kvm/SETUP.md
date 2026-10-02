@@ -71,7 +71,8 @@ The kria-jailhouse rootfs plus:
   maintenance interrupt (PPI 9) that the KVM vGICv2 needs.
 - `boot_tftp.cmd` (default): kernel and DTB from `tftpboot/kria-kvm/` on
   192.168.100.45, NFS root from `output/rootfs/kria`, SD fallback.
-- `boot.cmd`: SD card boot.
+- `boot_sd.cmd`: the same kernel, DTB and rootfs, entirely from the SD card
+  (see [SD card](#sd-card-standalone-boot-and-boot-mode)).
 
 ### Board setup (`install/` overlay)
 
@@ -93,6 +94,14 @@ rebuild or a re-extraction of the NFS root:
   `"disk_type": "lvm"` lives in `/mnt/sd/runphi/lvm.img` (6 GB), because a
   physical volume cannot live on NFS. The script attaches it through a loop
   device and activates the VG at boot, and undoes both at shutdown.
+- `etc/network/interfaces`: eth0 statically on 192.168.100.46 when booted from
+  the SD card (with an NFS root, `nfs_check` leaves eth0 to the kernel's `ip=`).
+  The gateway also serves DHCP, so `dhcpcd` adds a dynamic second address and
+  the DNS server in both modes.
+- `root/boot_mode.sh`: switches between SD and TFTP+NFS boot (see below).
+- `root/adjust_time.sh`: sets the clock, which starts at 1970 on every boot
+  (no RTC battery, no NTP client): from the `Date:` header of a plain-HTTP
+  request (`curl http://1.1.1.1` etc.), or asks for it. Same script as zcu104b.
 
 The volume group itself is created once, on the board (also in the script
 header):
@@ -112,18 +121,20 @@ then `losetup -c /dev/loop0 && pvresize /dev/loop0`.
 ./scripts/build_environment.sh -t kria -b kvm
 ./scripts/compile/dts_compile.sh -t kria -b kvm
 ./scripts/compile/bootscr_compile.sh -t kria -b kvm
+./scripts/compile/bootscr_compile.sh -t kria -b kvm -c tftp -o boot_tftp.scr
+./scripts/compile/bootscr_compile.sh -t kria -b kvm -c sd -o boot_sd.scr
 ```
 
 `linux_compile.sh` copies `Image` to `tftpboot/kria-kvm/`, but `dts_compile.sh`
-only writes `output/boot/system.dtb`, so copy the DTB by hand:
+and `bootscr_compile.sh` only write to `output/boot/`, so copy the rest by hand:
 
 ```sh
-cp environment/kria/kvm/output/boot/system.dtb tftpboot/kria-kvm/
+cp environment/kria/kvm/output/boot/system.dtb environment/kria/kvm/output/boot/boot.scr tftpboot/kria-kvm/
 ```
 
-`output/boot/boot.scr` (from `boot_tftp.cmd`) goes on the FAT partition of the
-SD card, where U-Boot's distro boot finds it; it then fetches everything else
-over TFTP and falls back to the SD card if the server is unreachable.
+`boot.scr` (= `boot_tftp.scr`) is what U-Boot runs when started by hand over
+TFTP. On the SD card, `boot_sd.scr` and `boot_tftp.scr` sit next to `boot.scr`
+and `boot_mode.sh` picks one of them.
 
 Then populate the NFS root on the server, as for the other environments:
 
@@ -148,6 +159,48 @@ rm -rf staging
 
 then apply the overlay with `setup_nfs_rootfs.sh -t kria -b kvm -o` and reboot
 the board.
+
+## SD card: standalone boot and boot mode
+
+The SD card holds the same kernel and a copy of the rootfs, so the board boots
+the same system with or without the TFTP/NFS server:
+
+| Partition | Contents |
+|---|---|
+| `mmcblk1p1` (FAT) | `Image`, `system.dtb` (as in `tftpboot/kria-kvm/`), `boot_sd.scr`, `boot_tftp.scr`, `boot.scr` (a copy of one of the two), `BOOT.BIN` (not used: the Kria boots from QSPI), `old/` (the previous SD system's boot files) |
+| `mmcblk1p2` (ext4) | a copy of the NFS rootfs, `runphi/` (Docker store and LVM file, shared by both modes), `old-sd-rootfs/` (the previous SD system) |
+
+`/root/boot_mode.sh` selects the next boot, from either mode:
+
+```sh
+/root/boot_mode.sh              # running from: NFS (tftp mode) / next boot: sd
+/root/boot_mode.sh sd -r        # boot from the SD card, reboot now
+/root/boot_mode.sh tftp -r      # boot over TFTP + NFS, reboot now
+```
+
+When booted from the SD card, `/mnt/sd` is the root partition mounted a second
+time, so `/mnt/sd/runphi` is the same Docker store and LVM file in both modes.
+
+The two root filesystems are independent copies. To refresh the SD copy from
+the NFS root, from a TFTP+NFS boot (stops Docker and the VG, which live on the
+SD card):
+
+```sh
+/etc/init.d/S60dockerd stop; /etc/init.d/S29lvm-loop stop
+mkdir -p /tmp/nfsroot && mount -o bind / /tmp/nfsroot
+cd /mnt/sd && rm -rf bin dev etc lib lib64 linuxrc media mnt opt proc root run sbin sys tmp usr var
+tar -C /tmp/nfsroot --numeric-owner -cf - . | tar -C /mnt/sd --numeric-owner -xpf -
+umount /tmp/nfsroot; /etc/init.d/S29lvm-loop start; /etc/init.d/S60dockerd start
+```
+
+(The bind mount shows the NFS root without `/proc`, `/sys`, `/dev`, `/tmp` and
+`/mnt/sd` mounted on top.) After a kernel or DTB update, copy `Image` and
+`system.dtb` to the FAT partition as well.
+
+The previous SD system (a Buildroot rootfs with a 6.18 kernel) is saved on the
+server in `/root/backups/kriakv260-sd-2026-10-02/` (`sd-p1-boot.tar`,
+`sd-p2-rootfs.tar`, see the README there), and also kept on the card in
+`old/` and `old-sd-rootfs/` until that space is needed.
 
 ## Verify the KVM host
 
