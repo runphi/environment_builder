@@ -44,6 +44,11 @@ plus:
 - guest drivers, so that the same `Image` also boots as a QEMU `virt` guest:
   `PCI_HOST_GENERIC`, virtio (mmio, pci, blk, net, console, balloon, rng), `SERIAL_AMBA_PL011`, `RTC_DRV_PL031`
 - `NO_HZ_FULL`, `HZ_1000`, for the isolcpus/nohz_full handling in backend_kvm
+- no RT group scheduling (`CONFIG_RT_GROUP_SCHED`, which the kube base has):
+  backend_kvm gives pinned vCPUs `SCHED_FIFO` priority 99, and with RT group
+  scheduling every new cgroup (libvirt's `machine`, the container's) starts
+  with a real-time budget of 0, so libvirt fails with `Cannot set scheduler
+  parameters ...: Operation not permitted`
 - PL bitstream / DFX loading: `FPGA_BRIDGE`, `FPGA_REGION`, `OF_FPGA_REGION`,
   `XILINX_PR_DECOUPLER` (missing from the kube defconfig, which lacks `FPGA_BRIDGE`)
 
@@ -99,6 +104,11 @@ rebuild or a re-extraction of the NFS root:
   The gateway also serves DHCP, so `dhcpcd` adds a dynamic second address and
   the DNS server in both modes.
 - `root/boot_mode.sh`: switches between SD and TFTP+NFS boot (see below).
+- runPHI with the KVM backend (see [runPHI](#runphi-backend_kvm)):
+  `usr/local/sbin/runphi`, `etc/docker/daemon.json` registers it as the
+  `runphi` Docker runtime (`runc` stays the default), and
+  `usr/local/sbin/runc_vanilla` (a link to `/usr/bin/runc`) is where runPHI
+  hands over containers that are not partitioned ones.
 - `root/adjust_time.sh`: sets the clock, which starts at 1970 on every boot
   (no RTC battery, no NTP client): from the `Date:` header of a plain-HTTP
   request (`curl http://1.1.1.1` etc.), or asks for it. Same script as zcu104b.
@@ -261,16 +271,49 @@ Through libvirt, as backend_kvm does:
 virsh create smoke.xml && virsh console smoke
 ```
 
-## Platform constraints (relevant for backend_kvm on aarch64)
+## runPHI (backend_kvm)
 
-- **GICv2 only.** The ZynqMP has a GIC-400, so guests must use
-  `<gic version='2'/>` (or `gic-version=2`); KVM cannot emulate a GICv3 on a
-  GICv2 host. Maximum 8 vCPUs per guest, no ITS.
+runPHI runs a container as a KVM guest when its image has a
+`/boot/config.json` (see `doc/backend_kvm_docs/` in runphi_manager), and hands
+any other container to `runc`. It is installed by the overlay; with the files
+from the [smoke test](#smoke-test):
+
+```sh
+mkdir -p /tmp/img/boot && cd /tmp/img && cp /root/guest/Image /root/guest/rootfs.cpio.gz boot/
+cat > boot/config.json <<EOF
+{ "os_var": "linux", "inmate": "/boot/Image", "ramdisk": "/boot/rootfs.cpio.gz",
+  "memory": 512, "vcpus": 2, "vcpu_pinning": [ {"vcpu": 0, "pcpu": 2}, {"vcpu": 1, "pcpu": 3} ],
+  "net": "user" }
+EOF
+tar -c . | docker import --change 'CMD ["/bin/sh"]' - kvm-guest
+docker run -d --name guest --runtime=runphi kvm-guest
+virsh list; tail /var/log/libvirt/qemu/runphi-*-serial.log
+docker rm -f guest
+```
+
+`/usr/share/runPHI/log.txt` is runPHI's log; `"disk_type": "lvm"` puts the
+guest's root filesystem in a logical volume of `test-vg`.
+
+The binary in the overlay is built from runphi_manager with the Buildroot
+toolchain of this environment, so that it uses the board's glibc (2.37): a
+binary linked with a newer host's `aarch64-linux-gnu-gcc` needs a newer glibc
+and does not start. In `runphi_manager/rust_runphi`:
+
+```sh
+CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=<environment_builder>/environment/kria/kvm/build/buildroot/output/host/bin/aarch64-buildroot-linux-gnu-gcc ./compile_rust.sh kvm
+cp target/aarch64-unknown-linux-gnu/release/runphi <environment_builder>/environment/kria/kvm/install/usr/local/sbin/
+```
+
+## Platform constraints
+
+- **GICv2.** The ZynqMP has a GIC-400, and KVM cannot emulate a GICv3 on a
+  GICv2 host, so guests get a GICv2 (backend_kvm uses `<gic version='host'/>`,
+  plain QEMU `gic-version=2`). Maximum 8 vCPUs per guest, no ITS.
 - **nVHE.** The Cortex-A53 is ARMv8.0 without VHE, so every VM exit is a full
   EL1/EL2 world switch.
 - **Guest console is PL011.** On the QEMU `virt` machine the serial console is
   `ttyAMA0` and the libvirt serial target is `system-serial`, not
-  `isa-serial`/`ttyS0` as on x86.
+  `isa-serial`/`ttyS0` as on x86 (backend_kvm picks them per architecture).
 - **GIC CPU interface aliasing.** On the ZynqMP the 4K GIC CPU-interface pages
   repeat every 64K. KVM maps the GICV region directly into the guest, so a
   guest that uses `GICC_DIR` (EOImode 1) would hit an alias. Linux guests at

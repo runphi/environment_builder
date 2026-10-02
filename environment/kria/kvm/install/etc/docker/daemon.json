@@ -1,4 +1,9 @@
 {
   "data-root": "/mnt/sd/runphi/docker",
-  "storage-driver": "overlay2"
+  "storage-driver": "overlay2",
+  "runtimes": {
+    "runphi": {
+      "path": "/usr/local/sbin/runphi"
+    }
+  }
 }
