@@ -68,6 +68,8 @@ The kria-jailhouse rootfs plus:
   default busybox does not provide
 - `eudev` for `/dev` management: libvirt requires udev, so this replaces the
   plain devtmpfs used by the other Kria environments
+- `ca-certificates`: the Mozilla CA bundle in `/etc/ssl/certs`, without which
+  `docker pull` fails with "x509: certificate signed by unknown authority"
 
 ### Boot sources
 
