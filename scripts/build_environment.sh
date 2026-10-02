@@ -333,6 +333,10 @@ fi
 if [[ ${LINUX_BUILD,,} =~ ^y(es)?$ ]]; then 
   echo "Patching LINUX ..."
   yes "n" | bash "${script_dir}"/patch/linux_patch.sh ${LINUX_PATCH_ARGS}
+  if [[ $? -ne 0 ]]; then
+    echo "LINUX patching failed. Exiting..."
+    exit 1
+  fi
   echo "Updating LINUX configuration ..."
   yes "y" | bash "${script_dir}"/defconfigs/linux_update_defconfigs.sh ${UPD_LINUX_COMPILE_ARGS}
   echo "Compiling the LINUX kernel ..."
@@ -349,6 +353,10 @@ fi
 if [[ ${BUILDROOT_BUILD,,} =~ ^y(es)?$ ]]; then
   echo "Patching BUILDROOT ..."
   yes "n" | bash "${script_dir}"/patch/buildroot_patch.sh ${BUILDROOT_PATCH_ARGS}
+  if [[ $? -ne 0 ]]; then
+    echo "BUILDROOT patching failed. Exiting..."
+    exit 1
+  fi
   echo "Updating BUILDROOT configuration ..."
   yes "y" | bash "${script_dir}"/defconfigs/buildroot_update_defconfigs.sh ${UPD_BUILDROOT_COMPILE_ARGS}
   echo "Compiling the rootfs with BUILDROOT ..."
@@ -365,6 +373,10 @@ fi
 if [[ ${JAILHOUSE_BUILD,,} =~ ^y(es)?$ ]]; then
   echo "Patching JAILHOUSE ..."
   yes "n" | bash "${script_dir}"/patch/jailhouse_patch.sh ${JAILHOUSE_PATCH_ARGS}
+  if [[ $? -ne 0 ]]; then
+    echo "JAILHOUSE patching failed. Exiting..."
+    exit 1
+  fi
   echo "Updating JAILHOUSE configuration ..."
   yes "y" | bash "${script_dir}"/defconfigs/jailhouse_update_defconfigs.sh ${UPD_JAILHOUSE_COMPILE_ARGS}
   echo "Compiling JAILHOUSE ..."
