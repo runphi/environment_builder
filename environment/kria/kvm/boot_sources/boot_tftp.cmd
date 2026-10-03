@@ -36,11 +36,31 @@ setenv fdt_addr    0x20000000
 # ---------- kernel command line ----------
 # KVM needs nothing here: the firmware enters Linux at EL2 and KVM takes
 # over EL2 at boot in nVHE mode (Cortex-A53 has no VHE).
-# runPHI backend_kvm pins vCPUs and steers host IRQs away from the CPUs
-# listed in isolcpus/nohz_full, so add them here when needed, e.g.:
-#   setenv isolargs "isolcpus=domain,managed_irq,3 nohz_full=3"
-setenv isolargs ""
 setenv baseargs "earlycon clk_ignore_unused console=ttyPS1,115200"
+
+# ---------- the SD card's FAT partition ----------
+# Distro boot sets devtype/devnum/distro_bootpart when it runs this script
+# from the SD card; started by hand, the SD card is mmc 1 on the KV260
+# (mmcblk1 in Linux). Used for isolargs.txt and for the fallback below.
+if test -z "${devtype}"; then
+	setenv devtype mmc
+	setenv devnum 1
+	setenv distro_bootpart 1
+fi
+
+# ---------- CPU isolation ----------
+# isolargs (isolcpus=, nohz_full=, ...) comes from isolargs.txt on the SD
+# card's FAT partition, one line "isolargs=...", which /root/boot_mode.sh
+# iso <cpus> writes and "iso off" removes. Without the file the kernel gets
+# no isolation arguments. Read in both boot modes, so the isolation does not
+# change when switching between SD and TFTP+NFS. The address is free RAM
+# between the kernel (from kernel_addr) and the DTB (fdt_addr).
+setenv isolargs ""
+setenv isoenv_addr 0x10000000
+if load ${devtype} ${devnum}:${distro_bootpart} ${isoenv_addr} isolargs.txt; then
+	env import -t -r ${isoenv_addr} ${filesize} isolargs
+fi
+echo "isolargs: ${isolargs}"
 
 echo "------------------------------------------------------------"
 echo "TFTP: ${serverip}:${tftppath} -> kernel ${kernel_addr}, dtb ${fdt_addr}"
@@ -62,16 +82,9 @@ fi
 
 # ---------- fallback: boot from the SD card ----------
 # Same as boot_sd.cmd: the SD card holds the same kernel and DTB and a copy of
-# the rootfs. Distro boot sets devtype/devnum/distro_bootpart when it runs this
-# script from the SD card; started by hand, the SD card is mmc 1 on the KV260
-# (mmcblk1 in Linux).
+# the rootfs.
 echo "------------------------------------------------------------"
 echo "Falling back to SD card boot ..."
-if test -z "${devtype}"; then
-	setenv devtype mmc
-	setenv devnum 1
-	setenv distro_bootpart 1
-fi
 if load ${devtype} ${devnum}:${distro_bootpart} ${kernel_addr} Image; then
 	if load ${devtype} ${devnum}:${distro_bootpart} ${fdt_addr} system.dtb; then
 		fdt addr ${fdt_addr}

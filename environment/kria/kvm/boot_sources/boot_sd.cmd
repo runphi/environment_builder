@@ -16,8 +16,6 @@ setenv kernel_addr 0x00200000
 setenv fdt_addr    0x20000000
 
 # ---------- kernel command line ----------
-# Same as boot_tftp.cmd; see there for isolargs.
-setenv isolargs ""
 setenv baseargs "earlycon clk_ignore_unused console=ttyPS1,115200"
 
 # ---------- where the files are ----------
@@ -29,6 +27,16 @@ if test -z "${devtype}"; then
 	setenv devnum 1
 	setenv distro_bootpart 1
 fi
+
+# ---------- CPU isolation ----------
+# Same as boot_tftp.cmd: isolargs comes from isolargs.txt on this partition,
+# written by /root/boot_mode.sh iso ...; without it, no isolation.
+setenv isolargs ""
+setenv isoenv_addr 0x10000000
+if load ${devtype} ${devnum}:${distro_bootpart} ${isoenv_addr} isolargs.txt; then
+	env import -t -r ${isoenv_addr} ${filesize} isolargs
+fi
+echo "isolargs: ${isolargs}"
 
 echo "------------------------------------------------------------"
 echo "SD: ${devtype} ${devnum}:${distro_bootpart} -> kernel ${kernel_addr}, dtb ${fdt_addr}, root /dev/mmcblk1p2"

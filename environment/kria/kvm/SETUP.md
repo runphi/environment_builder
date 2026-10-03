@@ -105,7 +105,8 @@ rebuild or a re-extraction of the NFS root:
   the SD card (with an NFS root, `nfs_check` leaves eth0 to the kernel's `ip=`).
   The gateway also serves DHCP, so `dhcpcd` adds a dynamic second address and
   the DNS server in both modes.
-- `root/boot_mode.sh`: switches between SD and TFTP+NFS boot (see below).
+- `root/boot_mode.sh`: switches between SD and TFTP+NFS boot, and sets the
+  CPU isolation of the next boot (see below).
 - runPHI with the KVM backend (see [runPHI](#runphi-backend_kvm)):
   `usr/local/sbin/runphi`, `etc/docker/daemon.json` registers it as the
   `runphi` Docker runtime (`runc` stays the default), and
@@ -179,16 +180,39 @@ the same system with or without the TFTP/NFS server:
 
 | Partition | Contents |
 |---|---|
-| `mmcblk1p1` (FAT) | `Image`, `system.dtb` (as in `tftpboot/kria-kvm/`), `boot_sd.scr`, `boot_tftp.scr`, `boot.scr` (a copy of one of the two), `BOOT.BIN` (not used: the Kria boots from QSPI), `old/` (the previous SD system's boot files) |
+| `mmcblk1p1` (FAT) | `Image`, `system.dtb` (as in `tftpboot/kria-kvm/`), `boot_sd.scr`, `boot_tftp.scr`, `boot.scr` (a copy of one of the two), `isolargs.txt` (optional, see below), `BOOT.BIN` (not used: the Kria boots from QSPI), `old/` (the previous SD system's boot files) |
 | `mmcblk1p2` (ext4) | a copy of the NFS rootfs, `runphi/` (Docker store and LVM file, shared by both modes), `old-sd-rootfs/` (the previous SD system) |
 
 `/root/boot_mode.sh` selects the next boot, from either mode:
 
 ```sh
-/root/boot_mode.sh              # running from: NFS (tftp mode) / next boot: sd
+/root/boot_mode.sh              # where / comes from, isolated CPUs, next boot mode and isolation
 /root/boot_mode.sh sd -r        # boot from the SD card, reboot now
 /root/boot_mode.sh tftp -r      # boot over TFTP + NFS, reboot now
+/root/boot_mode.sh iso 3        # isolate CPU 3 from the next boot on
+/root/boot_mode.sh iso off      # no isolation
+/root/boot_mode.sh sd iso 3 -r  # both at once
 ```
+
+### CPU isolation
+
+Both boot scripts add `isolargs` to the kernel command line, and read it from
+`isolargs.txt` on the FAT partition (one line, `isolargs=...`, imported with
+U-Boot's `env import -t`), so the isolation is the same in both boot modes and
+changes without recompiling anything. Without the file the kernel gets no
+isolation arguments; a U-Boot that could not import it would boot the same
+way. `boot_mode.sh iso <cpus>` writes
+
+```
+isolcpus=managed_irq,domain,nohz,<cpus> nohz_full=<cpus> rcu_nocbs=<cpus> irqaffinity=<the other CPUs>
+```
+
+which keeps the scheduler's load balancing, the tick, RCU callbacks and the
+device interrupts off `<cpus>` (e.g. `iso 3`: `irqaffinity=0,1,2`). Check
+after the reboot with `/root/boot_mode.sh` or
+`cat /sys/devices/system/cpu/isolated /sys/devices/system/cpu/nohz_full`.
+Note that `isolcpus=domain` takes the CPUs out of load balancing: a task runs
+there only when pinned to them (`vcpu_pinning`, `docker run --cpuset-cpus`).
 
 When booted from the SD card, `/mnt/sd` is the root partition mounted a second
 time, so `/mnt/sd/runphi` is the same Docker store and LVM file in both modes.

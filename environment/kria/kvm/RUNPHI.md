@@ -193,9 +193,9 @@ To give a guest CPUs of its own:
 
 - **Isolate them on the host.** `isolcpus=` and `nohz_full=` on the kernel
   command line keep the host scheduler, timers and kernel threads away from
-  them. In this environment that is `isolargs` in `boot_sources/boot_tftp.cmd`
-  and `boot_sd.cmd` (empty by default, with an example in a comment).
-  Recompile the boot scripts afterwards, as in [SETUP.md](SETUP.md#build).
+  them. In this environment, `/root/boot_mode.sh iso 3` sets them (with
+  `rcu_nocbs=` and `irqaffinity=`) for the next boot, and `iso off` removes
+  them; see [SETUP.md](SETUP.md#cpu-isolation).
 - **Pin the vCPUs to them** with `vcpu_pinning`, and restrict the container to
   them with `--cpuset-cpus`, so that QEMU's other threads (I/O, emulation)
   stay there as well.
