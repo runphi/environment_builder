@@ -54,7 +54,7 @@ Kubernetes, through containerd, has.
 
 | OCI command (from Docker) | What runPHI does |
 |---|---|
-| `create` (`docker run`, `docker create`) | 1. reads `/boot/config.json` from the container rootfs<br>2. writes the libvirt domain to `/run/runPHI/<id>/domain.xml`<br>3. with `"disk_type": "lvm"`, creates the logical volume and copies the rootfs into it<br>4. `virsh create --paused`: QEMU starts, the guest does not run yet<br>5. moves QEMU into the container's cgroup, so `--cpuset-cpus`, `--memory` and `--cpus` apply to it<br>6. pins the vCPU threads again (the cgroup move resets their affinity)<br>7. starts a *watcher* process and gives its PID to containerd<br>8. with `steer_irq`, moves the host interrupts |
+| `create` (`docker run`, `docker create`) | 1. reads `/boot/config.json` from the container rootfs<br>2. writes the libvirt domain to `/run/runPHI/<id>/domain.xml`<br>3. with `"disk_type": "lvm"`, creates the logical volume and copies the rootfs into it<br>4. `virsh create --paused`: QEMU starts, the guest does not run yet<br>5. moves QEMU into the container's cgroup, so `--cpuset-cpus`, `--memory` and `--cpus` apply to it<br>6. pins the vCPU threads and QEMU's other threads again (the cgroup move resets their affinity)<br>7. starts a *watcher* process and gives its PID to containerd<br>8. with `steer_irq`, moves the host interrupts |
 | `start` (`docker run`, `docker start`) | `virsh resume`: the guest starts booting |
 | `kill` (`docker stop`, `docker kill`, `docker rm -f`) | `virsh suspend` and `virsh destroy`, then restores the interrupts, removes the logical volume, the cgroup and `/run/runPHI/<id>` |
 | `delete` (`docker rm`) | the same teardown, when `kill` has not already done it |
@@ -87,7 +87,7 @@ The domain that runPHI generates on the Kria:
 | `<cpu>` | `host-passthrough` | the guest sees the real Cortex-A53 |
 | `<gic version='host'/>` | GICv2 on the KV260 | KVM can only give a guest the host's GIC version |
 | `<memory>` | `memory` MB, `<locked/>` | guest RAM is allocated and locked in host RAM: never swapped, no faults on first use |
-| `<cputune>` | `<vcpupin>` and `<vcpusched scheduler='fifo' priority='99'>` | only for the vCPUs listed in `vcpu_pinning` |
+| `<cputune>` | `<vcpupin>` and `<vcpusched scheduler='fifo' priority='99'>`, `<emulatorpin>` | only for the vCPUs listed in `vcpu_pinning`; `<emulatorpin>` keeps QEMU's other threads off their CPUs |
 | `<os>` | `<kernel>`, `<initrd>`, `<cmdline>` | direct kernel boot: no firmware, no bootloader |
 | `<serial>` | PL011 on a pty | the guest console (`ttyAMA0`), also logged to a file |
 | `<disk>`, `<interface>` | virtio | only with `disk_type` and `net` |
@@ -154,6 +154,7 @@ All fields are optional, and unknown ones are ignored.
 | `memory` | `--memory`, else 1024 (Linux) or 32 (other) | guest RAM in MB. When set and `docker run` has no `--memory`, it also becomes the container's cgroup memory limit. |
 | `vcpus` | see [below](#vcpus-pinning-and-real-time) | number of vCPUs |
 | `vcpu_pinning` | `[]` | `[{"vcpu": N, "pcpu": M}, …]`: vCPU N runs only on host CPU M, with SCHED_FIFO priority 99 |
+| `emulator_pinning` (or `emulatorpin`) | automatic | host CPUs for QEMU's own threads (main loop, I/O, monitor), e.g. `[0, 1]`. With pinned vCPUs and no value, runPHI picks CPUs without a pinned vCPU, see [below](#vcpus-pinning-and-real-time); `[]` turns it off |
 | `steer_irq` (or `irq_steering`) | none | host CPUs that get all movable host interrupts while the guest runs, e.g. `[0, 1]` |
 | `isolcpu`, `nohz_full` | `""` | CPU lists (`"2,3"`, `"2-3"`) that you consider isolated. Only used to warn in runPHI's log when `steer_irq` sends interrupts to one of them; isolation itself comes from the kernel command line. |
 | `net` | `"no"` | the guest's network, see [below](#networking) |
@@ -189,6 +190,25 @@ runPHI pins them again with `sched_setaffinity`. With `docker run
 --cpuset-cpus`, every pinned CPU must be in that set, or creating the
 container fails with `EINVAL`.
 
+QEMU's other threads (`qemu-system-aar`, the main loop that handles the
+guest's shutdown and every libvirt request, and `IO mon_iothread`) must not
+share a CPU with a SCHED_FIFO 99 vCPU: there they only run when the vCPU
+sleeps. After a guest powers off, the vCPU thread keeps its CPU busy inside
+KVM until QEMU's main loop stops it. A main loop on that CPU then never runs,
+the container never ends, and `docker stop` hangs. So, with pinned vCPUs,
+runPHI pins those threads (libvirt's `<emulatorpin>`) to the first non-empty
+set of:
+
+1. the container's CPUs that no vCPU is pinned to (non-isolated ones first);
+2. the host's housekeeping CPUs (online, not pinned, not isolated);
+3. any CPU without a pinned vCPU.
+
+With `--cpuset-cpus` limited to the pinned CPUs, that is case 2. The
+container's cgroup cpuset then gets the housekeeping CPUs as well (cpuset
+cgroups cannot run a thread outside their CPUs), while the vCPUs stay on
+their own. `"emulator_pinning": [0, 1]` chooses the CPUs explicitly, and
+`[]` disables this.
+
 To give a guest CPUs of its own:
 
 - **Isolate them on the host.** `isolcpus=` and `nohz_full=` on the kernel
@@ -196,9 +216,9 @@ To give a guest CPUs of its own:
   them. In this environment, `/root/boot_mode.sh iso 3` sets them (with
   `rcu_nocbs=` and `irqaffinity=`) for the next boot, and `iso off` removes
   them; see [SETUP.md](SETUP.md#cpu-isolation).
-- **Pin the vCPUs to them** with `vcpu_pinning`, and restrict the container to
-  them with `--cpuset-cpus`, so that QEMU's other threads (I/O, emulation)
-  stay there as well.
+- **Pin the vCPUs to them** with `vcpu_pinning`, optionally with
+  `--cpuset-cpus` listing them. QEMU's other threads go to the housekeeping
+  CPUs (see above).
 - **Move the host's interrupts away** with `"steer_irq"`, listing the other
   CPUs.
 - **List them in `isolcpu` / `nohz_full`** so runPHI warns you if `steer_irq`
@@ -267,7 +287,7 @@ second, and removing the second last would put the first one's steering back.
 | `-d` | use it always: there is nothing to attach to, the guest's console is not the container's output |
 | `--name <name>` | as usual |
 | `--rm` | as usual: the container is removed when the guest stops |
-| `--cpuset-cpus <list>` | the CPUs all of QEMU's threads may run on. Pinned vCPUs must be inside. |
+| `--cpuset-cpus <list>` | the CPUs QEMU may run on. Pinned vCPUs must be inside; QEMU's other threads may be added to it, see [vCPUs](#vcpus-pinning-and-real-time). |
 | `--cpus <n>` | CPU time limit for QEMU's normal threads (it does not throttle SCHED_FIFO vCPUs), and the default number of vCPUs |
 | `-m`, `--memory <size>` | cgroup memory limit, and the default guest RAM |
 | `docker stop`, `docker kill`, `docker rm -f` | destroy the guest at once, like pulling the power cord: there is no graceful shutdown |
@@ -322,27 +342,33 @@ runPHI gave it (`console=ttyAMA0`) and the machine it got: 256 MB
 ### 5.2 Pinned vCPUs and networking
 
 The `pinned-net` guest has 2 vCPUs pinned to CPUs 2 and 3, and QEMU's
-user-mode network. `--cpuset-cpus 2,3` keeps all of QEMU on those CPUs too.
+user-mode network. `--cpuset-cpus 2,3` gives the container those two CPUs;
+runPHI puts QEMU's other threads on the remaining CPUs 0 and 1.
 
 ```sh
 docker run -d --name g2 --runtime=runphi --cpuset-cpus 2,3 runphi-kvm-guest:pinned-net
 virsh vcpuinfo $(dom g2) | grep -E '^VCPU|^CPU:'
-ps -T -p $(qpid g2) -o tid,comm,psr,cls,rtprio | grep -E 'TID|CPU'
+ps -T -p $(qpid g2) -o tid,comm,psr,cls,rtprio
+grep -h Cpus_allowed_list /proc/$(qpid g2)/task/*/status
 ```
 
 Expected:
 
 ```
   TID COMMAND         PSR CLS RTPRIO
+ 4449 qemu-system-aar   0  TS      -
+ 4450 qemu-system-aar   1  TS      -
+ 4451 IO mon_iothread   1  TS      -
  4452 CPU 0/KVM         2  FF     99
  4453 CPU 1/KVM         3  FF     99
 ```
 
-`PSR` is the CPU the thread last ran on, `FF` is SCHED_FIFO. The cgroup of
-QEMU is the container's: `grep cpuset /proc/$(qpid g2)/cgroup` shows
-`/docker/<full id>`, and
-`cat /sys/fs/cgroup/cpuset/docker/$(docker inspect -f '{{.Id}}' g2)/cpuset.cpus`
-shows `2-3`.
+and `Cpus_allowed_list` `0-1` for the first three threads, `2` and `3` for
+the vCPUs. `PSR` is the CPU the thread last ran on, `FF` is SCHED_FIFO.
+`virsh emulatorpin $(dom g2)` shows `0-1`. The cgroup of QEMU is the
+container's: `grep cpuset /proc/$(qpid g2)/cgroup` shows `/docker/<full id>`,
+and `cat /sys/fs/cgroup/cpuset/docker/$(docker inspect -f '{{.Id}}' g2)/cpuset.cpus`
+shows `0-3`: the container's `2-3` plus the CPUs of QEMU's other threads.
 
 The network: `grep lease /var/log/libvirt/qemu/$(dom g2)-serial.log` shows
 the address the guest got from QEMU (`10.0.2.15`), and so does
