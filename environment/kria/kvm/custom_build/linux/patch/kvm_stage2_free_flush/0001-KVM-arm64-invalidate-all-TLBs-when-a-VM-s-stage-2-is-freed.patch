@@ -1,0 +1,46 @@
+From: Boccolarg <uranusthebest@gmail.com>
+Subject: [PATCH] KVM: arm64: invalidate all TLBs when a VM's stage 2 is freed
+
+kvm_free_stage2_pgd() frees a VM's stage-2 page tables without any TLB
+invalidation: the dead VM's VMID is not reused before the next VMID
+rollover, whose flush_context() invalidates the TLBs of all VMIDs on all
+CPUs (__kvm_flush_vm_context, TLBI ALLE1IS). For correctness that is
+enough; for latency it is not. On the Kria KV260 (Cortex-A53, 8-bit VMIDs,
+nVHE), once a guest has run with its stage-1 MMU on, what it leaves in the
+TLBs makes every broadcast TLB invalidation issued by the host slower, on
+every CPU, until the rollover or a reboot: with stress-ng --tlb-shootdown
+on CPUs 0-2, the cyclictest maximum of a container on the isolated CPU 3
+goes from about 60 us to 130-200 us (CPI on CPU 3 from 5.5 to 9.7 for the
+same instructions).
+
+Invalidating by VMID does not remove it: TLBI VMALLS12E1IS of the dead
+VM's VMID, of VMID 0, of both, TLBI VMALLE1IS of the host, with or without
+the ARM64_WORKAROUND_SPECULATIVE_AT sequences forced on the A53. Only TLBI
+ALLE1IS does, as the rollover proves. So do the rollover's invalidation
+when a VM that has run is torn down. It costs one TLB refill on every CPU
+per VM teardown.
+
+Measurements: runphi_testing/runphi-kvm-rt-kria (README, "The cause: the
+dead guest's TLB entries"; bench/order_probe.py; kernel/ for the patches
+of the experiment).
+
+--- a/arch/arm64/kvm/mmu.c
++++ b/arch/arm64/kvm/mmu.c
+@@ -814,6 +814,17 @@
+ 	write_lock(&kvm->mmu_lock);
+ 	pgt = mmu->pgt;
+ 	if (pgt) {
++		/*
++		 * The VMID of a dead VM is not reused before the next VMID
++		 * rollover, which invalidates the TLBs of all VMIDs. Until
++		 * then, on Cortex-A53, what a guest that ran with its stage-1
++		 * MMU on leaves in the TLBs makes the host's broadcast TLB
++		 * invalidations much slower, and invalidating by VMID does
++		 * not remove it: do the rollover's full invalidation now.
++		 * A VM that never ran has no VMID yet (0).
++		 */
++		if (atomic64_read(&mmu->vmid.id))
++			kvm_call_hyp(__kvm_flush_vm_context);
+ 		mmu->pgd_phys = 0;
+ 		mmu->pgt = NULL;
+ 		free_percpu(mmu->last_vcpu_ran);

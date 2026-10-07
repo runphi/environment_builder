@@ -38,6 +38,14 @@ plus:
   adapted to linux-xlnx 6.1.70. There is no 6.1.70-rt release; the only change
   is a dropped hunk for a function the Xilinx axienet driver does not have
   (details in the patch header). KVM on arm64 has no `!PREEMPT_RT` restriction.
+- the `kvm_stage2_free_flush` patch: when a VM is torn down, KVM invalidates
+  the TLBs of all VMIDs, as a VMID rollover would. Without it, once a guest
+  has run with its MMU on, what it leaves in the Cortex-A53's TLBs makes the
+  host's TLB invalidations slower until the next rollover or reboot, also on
+  the isolated CPU: a plain container's cyclictest maximum there goes from
+  about 60 to 130-200 µs under `stress-ng --tlb-shootdown` on the other CPUs.
+  Invalidating only the dead VM's VMID does not help (patch header;
+  measurements in `runphi_testing/runphi-kvm-rt-kria`).
 - KVM host: `VIRTUALIZATION`, `KVM`, `VHOST_NET`, `VHOST_VSOCK`, `MACVTAP`
 - libvirt networking: NAT/MASQUERADE, mangle, ebtables (as modules, installed by `linux_compile.sh -m`)
 - `disk_type: "lvm"` guests: device-mapper (`DM_SNAPSHOT`, `DM_THIN_PROVISIONING`), `EXT4_FS`, `BLK_DEV_LOOP`

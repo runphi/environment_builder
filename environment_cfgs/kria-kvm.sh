@@ -42,13 +42,16 @@ BOOTGEN_BUILD="n"
 # and the virtio/PL011 drivers that let the same Image boot as a QEMU 'virt'
 # guest.
 # preempt_rt: 6.1.69-rt21 adapted to linux-xlnx 6.1.70 (see the patch header).
+# kvm_stage2_free_flush: invalidate all TLBs when a VM is torn down; on the
+# Cortex-A53, what a dead guest leaves in the TLBs slows down the host's TLB
+# invalidations, also on the isolated CPU, until a VMID rollover (see the patch).
 # No jailhouse_enable patches: KVM owns EL2, so jailhouse.ko could not load.
 # -s: stop the build if Kconfig drops any option of the defconfig, so that a
 # patch problem cannot silently produce a non-RT kernel.
 LINUX_BUILD="y"
 UPD_LINUX_COMPILE_ARGS="-s"
 LINUX_COMPILE_ARGS="-m"
-LINUX_PATCH_ARGS="-d preempt_rt"
+LINUX_PATCH_ARGS="-d preempt_rt,kvm_stage2_free_flush"
 LINUX_REPOSITORY="https://github.com/Xilinx/linux-xlnx.git"
 LINUX_BRANCH="xlnx_rebase_v6.1_LTS"
 LINUX_COMMIT=""
