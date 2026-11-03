@@ -41,7 +41,7 @@ shift $((OPTIND - 1))
 # Set the Environment
 source "${script_dir}"/common/set_environment.sh "${TARGET}" "${BACKEND}"
 
-read -r -p "Do you really want to save "${defconfig_builroot_name}" (if already exist it will be overwritten)? (y/n): " SAVE
+read -r -p "Do you really want to save "${defconfig_buildroot_name}" (if already exist it will be overwritten)? (y/n): " SAVE
 
 # Save!
 if [[ "${SAVE,,}" =~ ^y(es)?$ ]]; then
@@ -60,6 +60,12 @@ if [[ "${SAVE,,}" =~ ^y(es)?$ ]]; then
   echo "BUILDROOT defconfig has been successfully saved"
 
   cp "${buildroot_config_dir}"/"${defconfig_buildroot_name}" "${custom_buildroot_config_dir}"/
+
+  # Keep the tracked Overlay directory (the Docker path), not this checkout's
+  overlay=$(grep "^BR2_ROOTFS_OVERLAY=" "${custom_buildroot_config_dir}"/"${defconfig_buildroot_name}"_old)
+  if [[ -n "${overlay}" ]]; then
+    sed -i "/^BR2_ROOTFS_OVERLAY=/c${overlay}" "${custom_buildroot_config_dir}"/"${defconfig_buildroot_name}"
+  fi
 fi
 
 if [[ "${SAVE_BUSYBOX,,}" =~ ^y(es)?$ ]]; then

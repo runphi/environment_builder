@@ -35,6 +35,14 @@ shift $((OPTIND - 1))
 # Set the Environment
 source "${script_dir}"/common/set_environment.sh "${TARGET}" "${BACKEND}"
 
+# Buildroot uses the host's cmake when it is recent enough, but cmake 4 dropped the
+# compatibility with cmake < 3.5 that some packages need (e.g., yajl): use cmake3, or
+# Buildroot's own cmake, then
+cmake_major=$(cmake --version 2>/dev/null | sed -n 's/^cmake version \([0-9]*\)\..*/\1/p')
+if [[ ${cmake_major:-0} -ge 4 ]]; then
+  export BR2_CMAKE_CANDIDATES="cmake3"
+fi
+
 # Compile buildroot
 make -C "${buildroot_dir}" -j"$(nproc)"
 if [[ $? -ne 0 ]]; then

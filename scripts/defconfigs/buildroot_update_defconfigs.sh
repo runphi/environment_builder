@@ -76,11 +76,12 @@ if [[ "${UPDATE,,}" =~ ^y(es)?$ ]]; then
   echo "Updating BUILDROOT config ..."
   echo "Updating ${defconfig_buildroot_name} ..."
 
-  # Modify Overlay directory according to the target
-  sed -i "/^BR2_ROOTFS_OVERLAY=/cBR2_ROOTFS_OVERLAY=\"${install_dir}\"" "${custom_buildroot_config_dir}"/"${defconfig_buildroot_name}"
-
   # Copy custom buildroot defconfig in buildroot and configure it
   cp "${custom_buildroot_config_dir}"/"${defconfig_buildroot_name}" "${buildroot_config_dir}"/"${defconfig_buildroot_name}"
+
+  # Modify Overlay directory according to the target, in Buildroot's copy only: the
+  # tracked defconfig keeps the Docker path, which a native checkout does not have
+  sed -i "/^BR2_ROOTFS_OVERLAY=/cBR2_ROOTFS_OVERLAY=\"${install_dir}\"" "${buildroot_config_dir}"/"${defconfig_buildroot_name}"
 
   # Configure Buildroot
   make -C "${buildroot_dir}" "${defconfig_buildroot_name}"
@@ -92,7 +93,7 @@ if [[ "${UPDATE,,}" =~ ^y(es)?$ ]]; then
 
   # Options of the defconfig that Kconfig dropped (unmet dependency, missing
   # patch, unknown symbol). Fatal with -s, a warning otherwise.
-  if ! check_defconfig "${custom_buildroot_config_dir}/${defconfig_buildroot_name}" "${buildroot_dir}/.config"; then
+  if ! check_defconfig "${buildroot_config_dir}/${defconfig_buildroot_name}" "${buildroot_dir}/.config"; then
     if [[ ${STRICT} -eq 1 ]]; then
       echo "ERROR: the options above of ${defconfig_buildroot_name} were dropped by Kconfig"
       exit 1
