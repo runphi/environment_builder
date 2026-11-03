@@ -25,3 +25,5 @@ HANDOFF_*.md
 # Local revert points made while changing configs / images
 *.pre-scheddebug.bak
 tftpboot/*/Image.*.bak
+# QEMU boots output/boot/Image: its copy in tftpboot (linux_compile.sh) is unused
+tftpboot/qemu-*/
