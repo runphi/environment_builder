@@ -72,9 +72,9 @@ fi
 # unclean shutdown can corrupt BOOT.BIN/Image/boot.scr and brick the boot. Take
 # it rw only for the copies, and put it back even if one of them fails.
 RESTORE_RO=0
-if ssh root@${IP} 'grep -q " /boot/firmware .* ro,\| /boot/firmware .*[ ,]ro[ ,]" /proc/mounts'; then
+if ssh ${SSH_ARGS} root@${IP} 'grep -q " /boot/firmware .* ro,\| /boot/firmware .*[ ,]ro[ ,]" /proc/mounts'; then
   echo "Remounting /boot/firmware read-write ..."
-  ssh root@${IP} 'mount -o remount,rw /boot/firmware' || {
+  ssh ${SSH_ARGS} root@${IP} 'mount -o remount,rw /boot/firmware' || {
     echo "ERROR: could not remount /boot/firmware read-write"
     exit 1
   }
@@ -82,10 +82,10 @@ if ssh root@${IP} 'grep -q " /boot/firmware .* ro,\| /boot/firmware .*[ ,]ro[ ,]
 fi
 
 restore_ro() {
-  ssh root@${IP} 'sync'
+  ssh ${SSH_ARGS} root@${IP} 'sync'
   if [ ${RESTORE_RO} -eq 1 ]; then
     echo "Restoring /boot/firmware read-only ..."
-    ssh root@${IP} 'mount -o remount,ro /boot/firmware'
+    ssh ${SSH_ARGS} root@${IP} 'mount -o remount,ro /boot/firmware'
   fi
 }
 trap restore_ro EXIT
