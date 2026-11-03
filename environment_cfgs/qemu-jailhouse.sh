@@ -36,12 +36,15 @@ DTS_CONFIG=""
 ### EMULATION
 
 # QEMU
+# "y" builds the pinned release below in build/qemu, the same on every host;
+# "n" runs the host's qemu-system-aarch64 instead (the target only needs the
+# generic virt machine: Jailhouse also works with Ubuntu 24.04's QEMU 8.2.2).
 QEMU_BUILD="y"
 QEMU_COMPILE_ARGS=""
 QEMU_PATCH_ARGS=""
 QEMU_REPOSITORY="https://github.com/Xilinx/qemu.git"
-QEMU_BRANCH="xlnx_rel_v2023.1"
-QEMU_COMMIT="21adc9f99e813fb24fb65421259b5b0614938376"
+QEMU_BRANCH="xlnx_rel_v2026.1.1"
+QEMU_COMMIT="09c90f09b99af539a56b25fd91e005e1884e8d18"
 QEMU_CONFIG=""
 
 ### FIRMWARE 

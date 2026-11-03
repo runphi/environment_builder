@@ -75,7 +75,7 @@ docker run -it --rm --user $(id -u):$(id -g) -v /etc/passwd:/etc/passwd:ro --net
 apt-get update && apt-get install -y \
   git make sed binutils diffutils python3 ninja-build build-essential \
   bzip2 tar findutils unzip cmake rsync u-boot-tools \
-  gcc-arm-none-eabi gcc-aarch64-linux-gnu libglib2.0-dev \
+  gcc-arm-none-eabi gcc-aarch64-linux-gnu libglib2.0-dev libslirp-dev libgcrypt20-dev \
   libpixman-1-dev wget cpio rsync bc libncurses5 flex bison \
   openssl libssl-dev kmod python3-pip file pkg-config
 

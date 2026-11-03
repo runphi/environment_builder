@@ -36,7 +36,9 @@ shift $((OPTIND - 1))
 source "${script_dir}"/common/set_environment.sh "${TARGET}" "${BACKEND}"
 
 cd "${qemu_dir}" || exit 1
-./configure --target-list=aarch64-softmmu
+# --disable-werror: QEMU turns warnings into errors in a git checkout, and newer
+# compilers warn about code that the pinned release did not know about
+./configure --target-list=aarch64-softmmu --disable-werror
 make -j"$(nproc)"
 if [[ $? -ne 0 ]]; then
   echo "Error: The make command failed during the compilation of QEMU."
