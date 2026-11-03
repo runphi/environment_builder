@@ -41,7 +41,7 @@ if [[ "${TARGET}" != "qemu" ]]; then
 fi
 
 
-exec "${qemu_bin_dir}"/qemu-system-aarch64 \
+exec "${qemu_bin}" \
   -cpu cortex-a53 \
   -smp 16 \
   -m 4G \

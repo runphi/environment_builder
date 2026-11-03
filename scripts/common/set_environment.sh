@@ -87,7 +87,7 @@ custom_build_dir=${backend_dir}/custom_build
 #### COMPONENTS DIRECTORIES ####
 # QEMU
 qemu_dir=${build_dir}/qemu
-qemu_bin_dir=${qemu_dir}/build/aarch64-softmmu
+qemu_bin_dir=${qemu_dir}/build
 # ATF
 atf_dir=${build_dir}/arm-trusted-firmware
 atf_image_dir=${atf_dir}/build/zynqmp/release/bl31
@@ -133,6 +133,13 @@ bootgen_dir=${build_dir}/bootgen
 
 ## SETUP THE SPECIFIC TARGET ##
 source ${environment_cfgs_dir}/${TARGET}-${BACKEND}.sh
+
+# QEMU binary: the one built in ${qemu_dir} if QEMU_BUILD="y", the host's otherwise
+if [[ ${QEMU_BUILD,,} =~ ^y(es)?$ ]]; then
+  qemu_bin=${qemu_bin_dir}/qemu-system-aarch64
+else
+  qemu_bin=qemu-system-aarch64
+fi
 
 
 ## Boot Sources Configurations ##
