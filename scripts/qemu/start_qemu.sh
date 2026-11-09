@@ -64,15 +64,23 @@ tap)
   ;;
 esac
 
+# Machine: QEMU_CPU, QEMU_SMP, QEMU_MEM, QEMU_MACHINE and QEMU_APPEND (extra kernel
+# arguments) of the environment_cfgs file, qemu-jailhouse's values if unset
+QEMU_CPU=${QEMU_CPU:-cortex-a53}
+QEMU_SMP=${QEMU_SMP:-16}
+QEMU_MEM=${QEMU_MEM:-4G}
+QEMU_MACHINE=${QEMU_MACHINE:-virt,gic-version=3,virtualization=on,its=off}
+QEMU_APPEND=${QEMU_APPEND-mem=768M}
+
 exec "${qemu_bin}" \
-  -cpu cortex-a53 \
-  -smp 16 \
-  -m 4G \
-  -machine virt,gic-version=3,virtualization=on,its=off \
+  -cpu "${QEMU_CPU}" \
+  -smp "${QEMU_SMP}" \
+  -m "${QEMU_MEM}" \
+  -machine "${QEMU_MACHINE}" \
   -nographic \
   -netdev "${netdev}" \
   -device virtio-net-device,netdev=eth0 \
   -drive file="${rootfs_dir}"/rootfs.ext2,if=none,format=raw,id=hd0 \
   -device virtio-blk-device,drive=hd0 \
   -kernel "${boot_dir}"/Image \
-  -append "rootwait root=/dev/vda console=ttyAMA0 mem=768M${net_append}"
+  -append "rootwait root=/dev/vda console=ttyAMA0 ${QEMU_APPEND}${net_append}"

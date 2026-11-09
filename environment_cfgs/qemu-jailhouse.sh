@@ -57,6 +57,13 @@ QEMU_REPOSITORY="https://github.com/Xilinx/qemu.git"
 QEMU_BRANCH="xlnx_rel_v2026.1.1"
 QEMU_COMMIT="09c90f09b99af539a56b25fd91e005e1884e8d18"
 QEMU_CONFIG=""
+# Machine of start_qemu.sh: 16 Cortex-A53 at EL2 (virtualization=on), GICv3 without
+# ITS; mem=768M leaves the rest of the RAM to Jailhouse and its cells
+QEMU_CPU="cortex-a53"
+QEMU_SMP="16"
+QEMU_MEM="4G"
+QEMU_MACHINE="virt,gic-version=3,virtualization=on,its=off"
+QEMU_APPEND="mem=768M"
 
 ### FIRMWARE 
 
