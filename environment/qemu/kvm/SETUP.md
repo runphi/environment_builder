@@ -91,13 +91,12 @@ The VM reaches the login prompt in about 15 seconds. `Starting DHCP server:
 FAIL` at boot is the ISC `dhcpd` of the rootfs, which has no subnet configured
 (as on the KV260); runPHI does not use it.
 
-**`--network none`** is needed for runPHI guests with this Docker: Docker 28
+runPHI from runphi_manager `d0fb1d3` on is needed with this Docker: Docker 28
 moves the container's network interface into the network namespace of the
-container's first process, which for runPHI is its watcher, in the host's
-namespace, where `eth0` exists already; the container then fails with `error
-renaming interface ... to "eth0": file exists`. The guest's network comes from
-`/boot/config.json` (`"net"`) anyway. Ordinary containers under
-`--runtime=runphi` (passed to runc) work with any network.
+container's first process, runPHI's watcher, which older versions left in the
+host's namespace, where `eth0` exists; their containers fail with `error
+renaming interface ... to "eth0": file exists` unless run with `--network
+none`. The guest's network comes from `/boot/config.json` (`"net"`) anyway.
 
 Check the KVM host in the VM:
 
@@ -120,8 +119,7 @@ docker images | grep runphi-kvm-guest   # initramfs, pinned-net, steer, lvm
 ```
 
 The tests of [kria-kvm's RUNPHI.md](../../kria/kvm/RUNPHI.md#5-tests-to-run-by-hand)
-then run with `--network none` added to the `docker run` of the guests, as
-does everything else in that guide (how runPHI drives the guests, every
+then run as they are (runphi_manager `08ff770`), as does everything else in that guide (how runPHI drives the guests, every
 `/boot/config.json` field, troubleshooting), with the differences of the
 table above. The cgroup of a container is `/sys/fs/cgroup/docker/<full id>`
 (cgroup v2) instead of `/sys/fs/cgroup/cpuset/docker/<full id>`. All of them

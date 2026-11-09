@@ -59,9 +59,11 @@ QEMU_COMMIT="09c90f09b99af539a56b25fd91e005e1884e8d18"
 QEMU_CONFIG=""
 # Machine of start_qemu.sh: the ZCU104's 4 Cortex-A53 and 2 GB, at EL2
 # (virtualization=on), with a GICv2 and its virtualization extensions, like the
-# ZCU104's GIC-400: runPHI gives the Xen guests a GICv2 (gic_version="v2").
-# Without an IOMMU, Xen maps Dom0 1:1 onto the RAM, and with 4 GB it does not
-# find room for dom0_mem=1500M ("Failed to allocate requested dom0 memory").
+# ZCU104's GIC-400: the domains get a GICv2 (the host's, unless gic_version in
+# their /boot/config.json says otherwise).
+# Without an IOMMU, Xen maps Dom0 1:1 onto the RAM, in large aligned blocks, and
+# here it does not always find room for the ZCU104's dom0_mem=1500M ("Failed to
+# allocate requested dom0 memory", with 2 GB as with 4 GB): Dom0 gets 1024M.
 QEMU_CPU="cortex-a53"
 QEMU_SMP="4"
 QEMU_MEM="2G"
@@ -70,10 +72,12 @@ QEMU_APPEND=""
 # Xen: QEMU boots the hypervisor built by Buildroot (output/rootfs/xen) with
 # QEMU_XEN_ARGS, and hands the kernel to it as Dom0 (guest-loader), whose console
 # is hvc0. The arguments are the ZCU104's (boot_sources/boot_xen.cmd of zcu104-xen)
-# without dtuart=serial0: QEMU's device tree has no serial0 alias, and without
-# dtuart Xen takes its UART from /chosen/stdout-path.
+# with dom0_mem=1024M (above), and without dtuart=serial0: QEMU's device tree has
+# no serial0 alias, and without dtuart Xen takes its UART from /chosen/stdout-path.
+# noreboot: a Xen panic stops there, readable, instead of rebooting, which in QEMU
+# brings Xen back with its boot CPU only (PSCI cannot start the others again).
 QEMU_XEN="y"
-QEMU_XEN_ARGS="console=dtuart dom0_mem=1500M dom0_max_vcpus=1 vwfi=native"
+QEMU_XEN_ARGS="console=dtuart dom0_mem=1024M dom0_max_vcpus=1 vwfi=native noreboot"
 
 ### FIRMWARE
 
