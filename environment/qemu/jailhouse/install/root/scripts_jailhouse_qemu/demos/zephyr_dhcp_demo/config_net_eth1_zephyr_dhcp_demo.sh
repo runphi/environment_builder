@@ -28,6 +28,10 @@ ip link set dev $INTERFACE up
 
 # Avviare il server DHCP
 echo "Starting DHCP server on $INTERFACE..."
+# dhcpd exits if its lease database does not exist: /var/lib/dhcp is in the
+# tmpfs /tmp, and no init script creates the file at boot (/etc/default/dhcpd)
+mkdir -p "$(dirname "$DHCP_LEASES")"
+touch "$DHCP_LEASES"
 dhcpd -d -4 -cf $DHCP_CONF -lf $DHCP_LEASES $INTERFACE &
 
 # Configurazione delle regole di NAT con iptables

@@ -87,9 +87,7 @@ From another shell, copy runPHI and the guest kernel into the VM:
 environment's `Image`, to `/root/guest/Image`, the kernel of the test guests).
 Both stay in the VM's disk image until the next Buildroot build rewrites it.
 
-The VM reaches the login prompt in about 15 seconds. `Starting DHCP server:
-FAIL` at boot is the ISC `dhcpd` of the rootfs, which has no subnet configured
-(as on the KV260); runPHI does not use it.
+The VM reaches the login prompt in about 15 seconds.
 
 runPHI from runphi_manager `d0fb1d3` on is needed with this Docker: Docker 28
 moves the container's network interface into the network namespace of the

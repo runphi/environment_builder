@@ -1,0 +1,8 @@
+# Sourced by /etc/init.d/S80dhcp-server.
+#
+# No DHCP server at boot: /etc/dhcp/dhcpd.conf serves 192.0.2.0/24 on eth1, the
+# IVSHMEM link to a non-root cell, which exists only once Jailhouse and the root
+# cell are enabled. At boot dhcpd found no subnet for its interfaces and exited
+# ("Starting DHCP server: FAIL"). The Zephyr DHCP demos start it on eth1
+# themselves (config_net_eth1_zephyr_dhcp_demo.sh).
+exit 0
