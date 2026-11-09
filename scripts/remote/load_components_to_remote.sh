@@ -6,7 +6,7 @@ usage() {
     [-a load all]\r\n \
     [-j load jailhouse]\r\n \
     [-r <RUNPHI MANAGER PATH> load runPHI]\r\n \
-    [-g load the guest kernel of the test images (kvm backend)]\r\n \
+    [-g load the guest kernel of the test images (kvm and xen backends)]\r\n \
     [-t <target>]\r\n \
     [-b <backend>]\r\n \
     [-p <runPHI_manager_path> (required with -r or -a)]\r\n \
@@ -85,11 +85,11 @@ echo "ARGS: ${RSYNC_ARGS} ${RSYNC_ARGS_SSH}"
 
 RUNPHI_INSTALL_DIR="/usr/share/runPHI"
 
-# KVM backend: there is no Jailhouse, and runPHI is a single binary; -a loads it
-# and the guest kernel
-if [[ "${BACKEND}" == "kvm" ]]; then
+# KVM and Xen backends: there is no Jailhouse, and runPHI is a single binary (with
+# caronte, the keep-alive helper of backend_xen); -a loads it and the guest kernel
+if [[ "${BACKEND}" == "kvm" || "${BACKEND}" == "xen" ]]; then
   if [ "${J}" -eq 1 ] && [ "${A}" -eq 0 ]; then
-    echo "ERROR: the kvm backend has no Jailhouse to load"
+    echo "ERROR: the ${BACKEND} backend has no Jailhouse to load"
     exit 1
   fi
   J=0
@@ -100,16 +100,20 @@ if [[ "${BACKEND}" == "kvm" ]]; then
     exit 1
   fi
 elif [ "${G}" -eq 1 ]; then
-  echo "ERROR: -g is for the kvm backend only"
+  echo "ERROR: -g is for the kvm and xen backends only"
   exit 1
 fi
 
 ssh ${SSH_ARGS} ${USER}@${IP} "date -u -s '$(date -u +'%Y-%m-%d %H:%M:%S')'"
 
-if [[ "${BACKEND}" == "kvm" ]]; then
+if [[ "${BACKEND}" == "kvm" || "${BACKEND}" == "xen" ]]; then
   # runPHI where /etc/docker/daemon.json expects it, and the kernel that
   # /root/guest/make_test_images.sh puts in the test images
   [ ${R} -eq 1 ] && rsync -tpv --chmod=755 ${RSYNC_ARGS} ${RSYNC_ARGS_SSH:+"${RSYNC_ARGS_SSH}"} "${runphi_bin}" ${USER}@${IP}:/usr/local/sbin/runphi
+  if [ ${R} -eq 1 ] && [[ "${BACKEND}" == "xen" ]]; then
+    ssh ${SSH_ARGS} ${USER}@${IP} "mkdir -p ${RUNPHI_INSTALL_DIR}"
+    rsync -tpv --chmod=755 ${RSYNC_ARGS} ${RSYNC_ARGS_SSH:+"${RSYNC_ARGS_SSH}"} "${runPHI_dir}"/target/runPHI_cell_configs/caronte ${USER}@${IP}:${RUNPHI_INSTALL_DIR}/caronte
+  fi
   [ ${G} -eq 1 ] && rsync -tv ${RSYNC_ARGS} ${RSYNC_ARGS_SSH:+"${RSYNC_ARGS_SSH}"} "${boot_dir}"/Image ${USER}@${IP}:/root/guest/Image
   exit 0
 fi

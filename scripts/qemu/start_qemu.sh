@@ -72,6 +72,16 @@ QEMU_MEM=${QEMU_MEM:-4G}
 QEMU_MACHINE=${QEMU_MACHINE:-virt,gic-version=3,virtualization=on,its=off}
 QEMU_APPEND=${QEMU_APPEND-mem=768M}
 
+# Boot: the kernel, or with QEMU_XEN="y" the Xen hypervisor (QEMU_XEN_ARGS), which
+# starts the kernel as Dom0 (QEMU's guest-loader) with Xen's console, hvc0
+kernel_args="rootwait root=/dev/vda ${QEMU_APPEND}${net_append}"
+if [[ ${QEMU_XEN,,} =~ ^y(es)?$ ]]; then
+  boot=(-kernel "${rootfs_dir}"/xen -append "${QEMU_XEN_ARGS}"
+    -device guest-loader,addr=0x49000000,kernel="${boot_dir}"/Image,bootargs="console=hvc0 ${kernel_args}")
+else
+  boot=(-kernel "${boot_dir}"/Image -append "console=ttyAMA0 ${kernel_args}")
+fi
+
 exec "${qemu_bin}" \
   -cpu "${QEMU_CPU}" \
   -smp "${QEMU_SMP}" \
@@ -82,5 +92,4 @@ exec "${qemu_bin}" \
   -device virtio-net-device,netdev=eth0 \
   -drive file="${rootfs_dir}"/rootfs.ext2,if=none,format=raw,id=hd0 \
   -device virtio-blk-device,drive=hd0 \
-  -kernel "${boot_dir}"/Image \
-  -append "rootwait root=/dev/vda console=ttyAMA0 ${QEMU_APPEND}${net_append}"
+  "${boot[@]}"

@@ -1,0 +1,8 @@
+{
+  "storage-driver": "overlay2",
+  "runtimes": {
+    "runphi": {
+      "path": "/usr/local/sbin/runphi"
+    }
+  }
+}

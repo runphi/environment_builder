@@ -7,3 +7,4 @@ zcu102-jailhouse
 tebf0808-jailhouse
 kria-kvm
 qemu-kvm
+qemu-xen

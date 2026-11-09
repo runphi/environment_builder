@@ -1,0 +1,66 @@
+#!/bin/sh
+#
+# Volume group for the LVM-backed guest disks of runPHI backend_xen
+# ("disk_type": "lvm"), which allocates one logical volume per container from
+# test-vg (its default; /usr/share/runPHI/xen_lvm_vg overrides the name).
+#
+# As in qemu-kvm, the VG lives in a file attached through a loop device, on the
+# rootfs disk. The first boot creates the file (sparse,
+# SIZE) and the VG in it; every boot attaches the file and activates the VG,
+# and the shutdown undoes both.
+
+NAME=lvm-loop
+IMAGE=/var/lib/runphi/lvm.img
+SIZE=3G
+VG=test-vg
+
+# Loop device the image is attached to, if any
+loop_dev() {
+	losetup -a 2>/dev/null | grep "$IMAGE" | cut -d: -f1
+}
+
+do_start() {
+	echo -n "Starting $NAME: "
+	if [ ! -f "$IMAGE" ]; then
+		mkdir -p "$(dirname "$IMAGE")" && truncate -s "$SIZE" "$IMAGE" || {
+			echo "FAIL (cannot create $IMAGE)"
+			return 1
+		}
+	fi
+	if [ -z "$(loop_dev)" ] && ! losetup -f "$IMAGE"; then
+		echo "FAIL (losetup)"
+		return 1
+	fi
+	if ! vgs "$VG" >/dev/null 2>&1; then
+		if ! pvcreate -q "$(loop_dev)" >/dev/null || ! vgcreate -q "$VG" "$(loop_dev)" >/dev/null; then
+			echo "FAIL (creating $VG on $IMAGE)"
+			return 1
+		fi
+	fi
+	vgchange -ay "$VG" >/dev/null 2>&1 && echo "OK" || echo "FAIL (vgchange $VG)"
+}
+
+do_stop() {
+	echo -n "Stopping $NAME: "
+	vgchange -an "$VG" >/dev/null 2>&1
+	dev=$(loop_dev)
+	[ -n "$dev" ] && losetup -d "$dev"
+	echo "OK"
+}
+
+case "$1" in
+	start)
+		do_start
+		;;
+	stop)
+		do_stop
+		;;
+	restart)
+		do_stop
+		sleep 1
+		do_start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+esac
