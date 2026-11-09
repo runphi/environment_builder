@@ -2,7 +2,7 @@
 
 # eth0 of the QEMU VM. With QEMU_NET="slirp", udhcpc (S40network) has already
 # configured it from QEMU's DHCP server. With QEMU_NET="tap", br0 has no DHCP
-# server: start_qemu.sh passes ${IP} of environment_cfgs/qemu-jailhouse.sh and
+# server: start_qemu.sh passes ${IP} of environment_cfgs/qemu-<backend>.sh and
 # br0's address on the kernel command line, and they are set here.
 
 [ "$1" = "stop" ] && exit 0

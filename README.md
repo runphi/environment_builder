@@ -44,6 +44,7 @@ A dedicated configuration script (`<target>-<backend>.sh`) defines the set of co
 
 - [x] Jailhouse (with Omnivisor)
 - [x] Xen *(Work in Progress)*
+- [x] KVM (`kria-kvm`, and `qemu-kvm` to try it without a board)
 - [ ] ...
 
 

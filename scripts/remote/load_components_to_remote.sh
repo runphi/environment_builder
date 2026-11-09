@@ -6,6 +6,7 @@ usage() {
     [-a load all]\r\n \
     [-j load jailhouse]\r\n \
     [-r <RUNPHI MANAGER PATH> load runPHI]\r\n \
+    [-g load the guest kernel of the test images (kvm backend)]\r\n \
     [-t <target>]\r\n \
     [-b <backend>]\r\n \
     [-p <runPHI_manager_path> (required with -r or -a)]\r\n \
@@ -20,8 +21,10 @@ source ${script_dir}/common/common.sh
 
 J=0
 R=0
+G=0
+A=0
 
-while getopts "jrat:b:p:h" o; do
+while getopts "jragt:b:p:h" o; do
   case "${o}" in
   j)
     J=1
@@ -33,6 +36,10 @@ while getopts "jrat:b:p:h" o; do
   a)
     J=1
     R=1
+    A=1
+    ;;
+  g)
+    G=1
     ;;
   t)
     TARGET=${OPTARG}
@@ -54,7 +61,7 @@ done
 shift $((OPTIND - 1))
 
 # Validate input
-if [ "${J}" -eq 0 ] && [ "${R}" -eq 0 ]; then
+if [ "${J}" -eq 0 ] && [ "${R}" -eq 0 ] && [ "${G}" -eq 0 ]; then
   echo "ERROR: Select a project to sync!"
   usage
 fi
@@ -77,7 +84,35 @@ echo "REMOTE: ${USER}@${IP}:${RSYNC_REMOTE_PATH}"
 echo "ARGS: ${RSYNC_ARGS} ${RSYNC_ARGS_SSH}"
 
 RUNPHI_INSTALL_DIR="/usr/share/runPHI"
+
+# KVM backend: there is no Jailhouse, and runPHI is a single binary; -a loads it
+# and the guest kernel
+if [[ "${BACKEND}" == "kvm" ]]; then
+  if [ "${J}" -eq 1 ] && [ "${A}" -eq 0 ]; then
+    echo "ERROR: the kvm backend has no Jailhouse to load"
+    exit 1
+  fi
+  J=0
+  [ "${A}" -eq 1 ] && G=1
+  runphi_bin=${runPHI_dir}/rust_runphi/target/aarch64-unknown-linux-gnu/release/runphi
+  if [ "${R}" -eq 1 ] && [ ! -f "${runphi_bin}" ]; then
+    echo "ERROR: no ${runphi_bin}: build runPHI first (see environment/${TARGET}/${BACKEND}/SETUP.md)"
+    exit 1
+  fi
+elif [ "${G}" -eq 1 ]; then
+  echo "ERROR: -g is for the kvm backend only"
+  exit 1
+fi
+
 ssh ${SSH_ARGS} ${USER}@${IP} "date -u -s '$(date -u +'%Y-%m-%d %H:%M:%S')'"
+
+if [[ "${BACKEND}" == "kvm" ]]; then
+  # runPHI where /etc/docker/daemon.json expects it, and the kernel that
+  # /root/guest/make_test_images.sh puts in the test images
+  [ ${R} -eq 1 ] && rsync -tpv --chmod=755 ${RSYNC_ARGS} ${RSYNC_ARGS_SSH:+"${RSYNC_ARGS_SSH}"} "${runphi_bin}" ${USER}@${IP}:/usr/local/sbin/runphi
+  [ ${G} -eq 1 ] && rsync -tv ${RSYNC_ARGS} ${RSYNC_ARGS_SSH:+"${RSYNC_ARGS_SSH}"} "${boot_dir}"/Image ${USER}@${IP}:/root/guest/Image
+  exit 0
+fi
 
 if [ -z "${RSYNC_ARGS_SSH}" ]; then
   [ ${J} -eq 1 ] && rsync -ruv --modify-window=1 ${RSYNC_ARGS} ${jailhouse_dir} ${USER}@${IP}:${RSYNC_REMOTE_PATH}
