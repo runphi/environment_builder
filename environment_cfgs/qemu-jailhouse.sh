@@ -1,21 +1,32 @@
 #!/bin/bash
 
 ## Connection
-## QEMU SLIRP MODE with ssh forwarding on 5022 port
-# IP="localhost"
-# USER="root"
-# SSH_ARGS="-p 5022"
-# RSYNC_ARGS_SSH="ssh -p 5022"
-# RSYNC_ARGS="-e"
-# RSYNC_REMOTE_PATH="/root"
-
-## QEMU TAP MODE
-IP="192.0.3.76"
+## QEMU_NET is the network of the QEMU VM, for start_qemu.sh and the remote scripts:
+##  "slirp": user-mode network, no root needed; the VM's ssh is forwarded to
+##           localhost:${QEMU_SSH_PORT}
+##  "tap":   the VM's eth0 on tap0, bridged to br0 by setup_bridge_tap.sh (as root),
+##           at ${IP}; needed by the Zephyr DHCP and micro-ROS demos
+## Override it without editing this file, e.g., export QEMU_NET=tap
+QEMU_NET="${QEMU_NET:-slirp}"
 USER="root"
-SSH_ARGS=""
-RSYNC_ARGS_SSH=""
-RSYNC_ARGS=""
-RSYNC_REMOTE_PATH=""
+if [[ "${QEMU_NET}" == "slirp" ]]; then
+  QEMU_SSH_PORT="5022"
+  IP="localhost"
+  SSH_ARGS="-p ${QEMU_SSH_PORT}"
+  RSYNC_ARGS_SSH="ssh -p ${QEMU_SSH_PORT}"
+  RSYNC_ARGS="-e"
+  RSYNC_REMOTE_PATH="/root"
+elif [[ "${QEMU_NET}" == "tap" ]]; then
+  IP="192.0.3.76"
+  QEMU_TAP_GATEWAY="192.0.3.1" # br0's address in setup_bridge_tap.sh
+  SSH_ARGS=""
+  RSYNC_ARGS_SSH=""
+  RSYNC_ARGS=""
+  RSYNC_REMOTE_PATH=""
+else
+  echo "ERROR: QEMU_NET must be \"slirp\" or \"tap\", not \"${QEMU_NET}\""
+  exit 1
+fi
 
 
 ## CROSS COMPILING ARCHITECTURES

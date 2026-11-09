@@ -1,24 +1,32 @@
 #!/bin/bash
 
-# Assegna indirizzo ip a eth0
-# eth0 è l'interfaccia tap assegnata alla VM QEMU
+# eth0 of the QEMU VM. With QEMU_NET="slirp", udhcpc (S40network) has already
+# configured it from QEMU's DHCP server. With QEMU_NET="tap", br0 has no DHCP
+# server: start_qemu.sh passes ${IP} of environment_cfgs/qemu-jailhouse.sh and
+# br0's address on the kernel command line, and they are set here.
 
-# TODO: eth0 IP address (e.g., 192.0.3.76) must be taken from ${IP} in 'environment/qemu/jailhouse/environment_cfgs/qemu-jailhouse.sh'
+[ "$1" = "stop" ] && exit 0
 
 ETH0_NAME="eth0"
-ETH0_IP="192.0.3.76"
-ETH0_NETMASK="255.255.255.0"
-DEFAULT_GATEWAY="192.0.3.1"  ## NODE: this is the br0 address assigned in host machine
+ETH0_IP=""
+DEFAULT_GATEWAY=""
+for param in $(cat /proc/cmdline); do
+  case "${param}" in
+  runphi.tap_ip=*) ETH0_IP=${param#*=} ;;
+  runphi.tap_gw=*) DEFAULT_GATEWAY=${param#*=} ;;
+  esac
+done
 
-ip addr add ${ETH0_IP}/${ETH0_NETMASK} dev ${ETH0_NAME}
-echo "Addedd ${ETH0_IP} to ${ETH0_NAME} NIC (tap0 interface in QEMU VM)"
+if [ -z "${ETH0_IP}" ]; then
+  echo "${ETH0_NAME}: no runphi.tap_ip on the kernel command line, keeping its DHCP configuration"
+  exit 0
+fi
 
-#echo "Adding iptables DNAT rules..."
-#iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+ip link set ${ETH0_NAME} up
+ip addr add ${ETH0_IP} dev ${ETH0_NAME}
+echo "Added ${ETH0_IP} to ${ETH0_NAME} (tap0 on the host)"
 
-# Default route is set to the host's bridge IP
-
-# TODO: make gateway IP as a param
+# Default route through the host's bridge
 ip route add default via ${DEFAULT_GATEWAY}
 
 echo "nameserver 8.8.8.8" > /etc/resolv.conf

@@ -46,7 +46,8 @@ iptables -A FORWARD -d ${BRIDGE_NETWORK}/${BRIDGE_NETMASK} -o ${BRIDGE_NAME} -m 
 iptables -t nat -A POSTROUTING -s ${BRIDGE_NETWORK}/${BRIDGE_NETMASK} -d ${BRIDGE_NETWORK}/${BRIDGE_NETMASK} -j ACCEPT
 iptables -t nat -A POSTROUTING -s ${BRIDGE_NETWORK}/${BRIDGE_NETMASK} -j MASQUERADE
 
-ip tuntap add dev ${TAP_NAME} mode tap user $(whoami)
+# tap0 belongs to the user who runs QEMU (start_qemu.sh), not to root under sudo
+ip tuntap add dev ${TAP_NAME} mode tap user ${SUDO_USER:-$(whoami)}
 ip link set ${TAP_NAME} master ${BRIDGE_NAME}
 ip link set dev ${TAP_NAME} up
 

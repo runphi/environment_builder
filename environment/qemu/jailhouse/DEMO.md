@@ -1,22 +1,38 @@
 # Run demos
 
-After building the environment ``qemu-jailhouse``, (check [this](https://dessert.unina.it:8088/runphi/environment_builder#1-download-configure-and-compile-everything)) (**if you built the environment via a docker container, please exit and destroy it**), setup QEMU VM networking.
+After building the environment ``qemu-jailhouse``, (check [this](https://dessert.unina.it:8088/runphi/environment_builder#1-download-configure-and-compile-everything)) (**if you built the environment via a docker container, please exit and destroy it**), start the QEMU VM.
+
+The VM's network is chosen by ``QEMU_NET`` (``environment_cfgs/qemu-jailhouse.sh``), which ``start_qemu.sh`` and the remote scripts (``load_components_to_remote.sh``, ``ssh_connection.sh``, ...) read:
+- ``slirp`` (default): QEMU's user-mode network, no root needed; the VM's ssh is forwarded to ``localhost:5022``.
+- ``tap``: the VM's eth0 is on ``tap0``, bridged to ``br0`` on the host, at ``192.0.3.76``. The Zephyr DHCP and micro-ROS demos need it.
+
+Set it for a shell with ``export QEMU_NET=tap`` (or ``slirp``), without editing the file.
+
+With the default slirp network:
 
 ```
-# cd /PATH_TO_RUNPHI/
-# ./scripts/qemu/setup_bridge_tap.sh
+# cd /PATH_TO_RUNPHI/
+# ./scripts/qemu/start_qemu.sh
+## When request user: root, password: root
+```
+
+With the tap network, set up the host's bridge and tap first (as root, once per host boot):
+
+```
+# cd /PATH_TO_RUNPHI/
+# sudo ./scripts/qemu/setup_bridge_tap.sh
 ```
 
 Optionally, if you want to run Zephyr demos that need networking (check [this](https://dessert.unina.it:8088/runphi/environment_builder/-/tree/main/environment/qemu/jailhouse#zephyr-dhcp-demo)), run also the following:
 
 ```
-# cd /PATH_TO_RUNPHI/
-# ./scripts/qemu/setup_route_qemu_host_eth1_zephyr.sh
+# sudo ./scripts/qemu/setup_route_qemu_host_eth1_zephyr.sh
 ```
 
 Finally, start the QEMU VM
 
 ```
+# export QEMU_NET=tap
 # ./scripts/qemu/start_qemu.sh
 ## When request user: root, password: root
 ```
