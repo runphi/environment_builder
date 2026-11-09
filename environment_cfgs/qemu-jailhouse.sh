@@ -76,6 +76,9 @@ UBOOT_BUILD="n"
 ### KERNEL
 
 # LINUX
+# jailhouse_qemu_kernel_defconfig has what Docker 28 on cgroup v2 needs (Buildroot
+# 2026.08.1): BPF_SYSCALL and CGROUP_BPF (runc's device rules), the iptables raw
+# table (its bridge network).
 LINUX_BUILD="y"
 UPD_LINUX_COMPILE_ARGS=""
 LINUX_COMPILE_ARGS="-m"
@@ -92,13 +95,15 @@ LINUX_CONFIG=""
 ### FILESYSTEM 
 
 # BUILDROOT
+# Buildroot 2026.08.1. gcc_enabled: gcc on the target (BR2_PACKAGE_GCC_TARGET),
+# the 2023.05 patch ported to 2026.08.1.
 BUILDROOT_BUILD="y"
 UPD_BUILDROOT_COMPILE_ARGS=""
 BUILDROOT_COMPILE_ARGS=""
-BUILDROOT_PATCH_ARGS="-p 0001-gcc-target.patch"
+BUILDROOT_PATCH_ARGS="-d gcc_enabled"
 BUILDROOT_REPOSITORY="https://github.com/buildroot/buildroot.git"
-BUILDROOT_BRANCH="2023.05.x"
-BUILDROOT_COMMIT="25d59c073ac355d5b499a9db5318fb4dc14ad56c"
+BUILDROOT_BRANCH="2026.08.x"
+BUILDROOT_COMMIT="7fdeadb3b9f12f78e5fccca914d7fef47090ab9a"
 BUILDROOT_CONFIG=""
 
 ### BACKEND (e.g., Jailhouse, Xen, Linux full isol)

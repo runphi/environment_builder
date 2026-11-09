@@ -20,8 +20,10 @@ runPHI/rust_runphi/target/*
 
 # Session handoff notes, not part of the environment definition
 HANDOFF_*.md
-# Home-directory file created by the docker build environment
+# Home-directory files created by the docker build environment (HOME is the
+# checkout): .bashrc, and Go's telemetry directory (Buildroot's host-go)
 .bashrc
+/.config/
 # Local revert points made while changing configs / images
 *.pre-scheddebug.bak
 tftpboot/*/Image.*.bak

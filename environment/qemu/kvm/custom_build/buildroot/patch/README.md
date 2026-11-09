@@ -1,2 +1,4 @@
 
-- gcc_enabled: The patch enables the selection (in buildroot configuration) of the gcc compiler. This will allow to install the gcc compiler in the filesystem of the environment if needed.
+- gcc_enabled: The patch enables the selection (in buildroot configuration) of the gcc compiler. This will allow to install the gcc compiler in the filesystem of the environment if needed. It is the Buildroot 2023.05 patch ported to Buildroot 2026.08.1 (the header says what changed).
+- libvirt_cgroup_v2: libvirt selects cgroupfs-v2-mount instead of cgroupfs-mount (cgroup v1) without systemd. docker-engine depends on !cgroupfs-mount, so with libvirt's v1 mount Kconfig drops docker-engine; libvirt supports cgroup v2 since 5.0.
+- libvirt_12: libvirt 12.9.0 instead of 7.10.0 (json-c instead of yajl, driver_secret option): libvirt 7.10 cannot start QEMU 11.0 domains. Applies after libvirt_cgroup_v2.

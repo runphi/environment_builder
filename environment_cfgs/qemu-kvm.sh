@@ -75,9 +75,11 @@ BOOTGEN_BUILD="n"
 ### KERNEL
 
 # LINUX
-# The kria-kvm kernel: linux-xlnx 6.1 with the same patches and defconfig
-# (kvm_qemu_kernel_defconfig is a copy of kvm_kria_kernel_defconfig, which already
-# has the virtio, PL011, PCI and GICv3 drivers of QEMU's virt board).
+# The kria-kvm kernel: linux-xlnx 6.1 with the same patches; kvm_qemu_kernel_defconfig
+# is kvm_kria_kernel_defconfig (which already has the virtio, PL011, PCI and GICv3
+# drivers of QEMU's virt board) plus what Docker 28 and libvirt on cgroup v2 need
+# (Buildroot 2026.08.1): BPF_SYSCALL and CGROUP_BPF (device rules), the iptables
+# raw table and IPv6 NAT (Docker's bridge network).
 # preempt_rt: 6.1.69-rt21 adapted to linux-xlnx 6.1.70 (see the patch header).
 # kvm_stage2_free_flush: invalidate all TLBs when a VM is torn down (see the patch).
 # -s: stop the build if Kconfig drops any option of the defconfig.
@@ -94,15 +96,22 @@ LINUX_CONFIG=""
 
 # BUILDROOT
 # The kria-kvm rootfs (libvirt, QEMU, Docker, LVM2, eudev, ...) as an ext4 disk
-# image for QEMU, with this environment's overlay.
+# image for QEMU, with this environment's overlay, on Buildroot 2026.08.1 (kria-kvm
+# is still on 2023.05).
+# gcc_enabled: gcc on the target, the 2023.05 patch ported to 2026.08.1.
+# libvirt_cgroup_v2: libvirt mounts cgroup v2 without systemd, as docker-engine
+# does; otherwise Kconfig drops docker-engine. Docker, libvirt and runPHI then use
+# cgroup v2, not v1 as on the KV260.
+# libvirt_12: libvirt 12.9.0 instead of 7.10.0, which cannot start domains with
+# 2026.08.1's QEMU 11.0 (it passes options QEMU has removed, e.g. -no-acpi).
 # -s: stop the build if Kconfig drops any option of the defconfig.
 BUILDROOT_BUILD="y"
 UPD_BUILDROOT_COMPILE_ARGS="-s"
 BUILDROOT_COMPILE_ARGS=""
-BUILDROOT_PATCH_ARGS="-d gcc_enabled"
+BUILDROOT_PATCH_ARGS="-d gcc_enabled,libvirt_cgroup_v2,libvirt_12"
 BUILDROOT_REPOSITORY="https://github.com/buildroot/buildroot.git"
-BUILDROOT_BRANCH="2023.05.x"
-BUILDROOT_COMMIT="25d59c073ac355d5b499a9db5318fb4dc14ad56c"
+BUILDROOT_BRANCH="2026.08.x"
+BUILDROOT_COMMIT="7fdeadb3b9f12f78e5fccca914d7fef47090ab9a"
 BUILDROOT_CONFIG=""
 
 ### BACKEND
