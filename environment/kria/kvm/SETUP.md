@@ -11,7 +11,7 @@ enabled plus a buildroot rootfs carrying libvirt and QEMU.
 |---|---|---|
 | Firmware (FSBL, PMUFW, ATF, U-Boot) | no | Reuses the BOOT.BIN in QSPI, see below |
 | Linux (`xlnx_rebase_v6.1_LTS`) | yes | `kvm_kria_kernel_defconfig` |
-| Buildroot 2023.05 | yes | `kvm_kria_buildroot_defconfig` |
+| Buildroot 2026.08.1 | yes | `kvm_kria_buildroot_defconfig`, with the patches below |
 | Jailhouse | no | KVM owns EL2, `jailhouse.ko` cannot load next to it |
 
 ## Firmware
@@ -59,6 +59,11 @@ plus:
   parameters ...: Operation not permitted`
 - PL bitstream / DFX loading: `FPGA_BRIDGE`, `FPGA_REGION`, `OF_FPGA_REGION`,
   `XILINX_PR_DECOUPLER` (missing from the kube defconfig, which lacks `FPGA_BRIDGE`)
+- Docker 28 on cgroup v2: `BPF_SYSCALL` and `CGROUP_BPF` (runc controls the
+  container's devices with a BPF program, `bpf_prog_query(BPF_CGROUP_DEVICE)`
+  fails without them), `IP_NF_RAW` and `IP6_NF_RAW` (Docker 28 filters direct
+  access to container ports in the raw table), `IP6_NF_NAT` and
+  `IP6_NF_TARGET_MASQUERADE`
 
 The environment passes `-s` to the defconfig update scripts
 (`UPD_LINUX_COMPILE_ARGS`, `UPD_BUILDROOT_COMPILE_ARGS`): if Kconfig drops any
@@ -78,6 +83,17 @@ The kria-jailhouse rootfs plus:
   plain devtmpfs used by the other Kria environments
 - `ca-certificates`: the Mozilla CA bundle in `/etc/ssl/certs`, without which
   `docker pull` fails with "x509: certificate signed by unknown authority"
+
+Buildroot 2026.08.1 has Docker 28.5.2, QEMU 11.0.0 and glibc 2.44, on cgroup
+v2 (`cgroupfs-v2-mount`). Its patches (`custom_build/buildroot/patch/`, the
+same as qemu-kvm's, see the README there):
+
+- `gcc_enabled`: lets the defconfig select gcc for the target
+- `libvirt_cgroup_v2`: libvirt selects the cgroup v2 mount instead of
+  `cgroupfs-mount` (cgroup v1), which docker-engine excludes
+- `libvirt_12`: libvirt 12.9.0 instead of 7.10.0, which cannot start QEMU 11
+  domains, and the `S92libvirtd` fix that stops `find` failing on
+  `drivers/vfio` at every boot
 
 ### Boot sources
 
@@ -113,6 +129,8 @@ rebuild or a re-extraction of the NFS root:
   the SD card (with an NFS root, `nfs_check` leaves eth0 to the kernel's `ip=`).
   The gateway also serves DHCP, so `dhcpcd` adds a dynamic second address and
   the DNS server in both modes.
+- `etc/default/dhcpd`: `S80dhcp-server` does not start ISC `dhcpd`, which has
+  no network to serve.
 - `root/boot_mode.sh`: switches between SD and TFTP+NFS boot, and sets the
   CPU isolation of the next boot (see below).
 - runPHI with the KVM backend (see [runPHI](#runphi-backend_kvm)):
@@ -163,6 +181,10 @@ Then populate the NFS root on the server, as for the other environments:
 sudo ./scripts/remote/setup_nfs_rootfs.sh -t kria -b kvm
 ```
 
+When the NFS root is extracted afresh (a new Buildroot version), copy the old
+one's `/etc/dropbear` into it before the board boots it, or the board gets a
+new ssh host key.
+
 ### Updating the rootfs of a running board
 
 `setup_nfs_rootfs.sh -f` re-extracts every file of `rootfs.tar`. Over NFS, a
@@ -188,8 +210,8 @@ the same system with or without the TFTP/NFS server:
 
 | Partition | Contents |
 |---|---|
-| `mmcblk1p1` (FAT) | `Image`, `system.dtb` (as in `tftpboot/kria-kvm/`), `boot_sd.scr`, `boot_tftp.scr`, `boot.scr` (a copy of one of the two), `isolargs.txt` (optional, see below), `BOOT.BIN` (not used: the Kria boots from QSPI), `old/` (the previous SD system's boot files) |
-| `mmcblk1p2` (ext4) | a copy of the NFS rootfs, `runphi/` (Docker store and LVM file, shared by both modes), `old-sd-rootfs/` (the previous SD system) |
+| `mmcblk1p1` (FAT) | `Image`, `system.dtb` (as in `tftpboot/kria-kvm/`), `boot_sd.scr`, `boot_tftp.scr`, `boot.scr` (a copy of one of the two), `isolargs.txt` (optional, see below), `BOOT.BIN` (not used: the Kria boots from QSPI), `Image.fixed`, `Image.wfi`, `Image.unpatched` (kernels of the campaign system, see below) |
+| `mmcblk1p2` (ext4) | a copy of the NFS rootfs, `runphi/` (Docker store and LVM file, shared by both modes) |
 
 `/root/boot_mode.sh` selects the next boot, from either mode:
 
@@ -241,10 +263,12 @@ umount /tmp/nfsroot; /etc/init.d/S29lvm-loop start; /etc/init.d/S60dockerd start
 `/mnt/sd` mounted on top.) After a kernel or DTB update, copy `Image` and
 `system.dtb` to the FAT partition as well.
 
-The previous SD system (a Buildroot rootfs with a 6.18 kernel) is saved on the
-server in `/root/backups/kriakv260-sd-2026-10-02/` (`sd-p1-boot.tar`,
-`sd-p2-rootfs.tar`, see the README there), and also kept on the card in
-`old/` and `old-sd-rootfs/` until that space is needed.
+The campaign system, on which the runPHI-KVM measurements of
+`runphi_testing/runphi-kvm-rt-kria` ran (Buildroot 2023.05, kernel #6 =
+`Image.fixed`, Docker 23, libvirt 7.10, cgroup v1), is saved on the server in
+`/root/backups/kriakv260-sd-2026-11-11/` (`sd-p1-boot.tar`, `sd-p2-rootfs.tar`
+with its Docker store, see the README there); the system before it (a
+Buildroot rootfs with a 6.18 kernel) is in `/root/backups/kriakv260-sd-2026-10-02/`.
 
 ## Verify the KVM host
 
@@ -331,7 +355,7 @@ docker rm -f guest
 guest's root filesystem in a logical volume of `test-vg`.
 
 The binary in the overlay is built from runphi_manager with the Buildroot
-toolchain of this environment, so that it uses the board's glibc (2.37): a
+toolchain of this environment, so that it uses the board's glibc (2.44): a
 binary linked with a newer host's `aarch64-linux-gnu-gcc` needs a newer glibc
 and does not start. In `runphi_manager/rust_runphi`:
 

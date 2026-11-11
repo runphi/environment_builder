@@ -4,9 +4,8 @@
 emulated board: a KVM host for the runPHI `backend_kvm`, which drives guests
 through `virsh` -> `libvirtd` -> `qemu-system-aarch64`, without a KV260. It
 runs the same kernel (linux-xlnx 6.1, PREEMPT_RT, KVM) and the same rootfs
-packages (libvirt, QEMU, Docker, LVM) on 4 emulated Cortex-A53 at EL2, in newer
-versions: the rootfs is built with Buildroot 2026.08.1, while kria-kvm is still
-on 2023.05.
+packages (libvirt, QEMU, Docker, LVM, Buildroot 2026.08.1 for both) on 4
+emulated Cortex-A53 at EL2.
 
 QEMU emulates every instruction of the host and of its guests (TCG), so this
 environment is for functional tests: how runPHI creates, pins, connects and
@@ -31,8 +30,7 @@ removes guests. Latencies and timings mean nothing here; measure on the board.
 | GIC | GIC-400 (GICv2): guests get a GICv2, at most 8 vCPUs | GICv3: guests get a GICv3 |
 | RAM | 3.7 GB usable | 4 GB |
 | Root filesystem | NFS or SD card | `output/rootfs/rootfs.ext2` (ext4, 6 GB) on a virtio disk |
-| Userspace | Buildroot 2023.05: Docker 23, libvirt 7.10, QEMU 8.0 | Buildroot 2026.08.1: Docker 28.5, libvirt 12.9, QEMU 11.0 |
-| cgroups | v1 | v2: Buildroot's Docker only mounts cgroup v2 without systemd |
+| Userspace | Buildroot 2026.08.1: Docker 28.5, libvirt 12.9, QEMU 11.0, cgroup v2 | the same |
 | Docker data | `/mnt/sd/runphi/docker` | `/var/lib/docker` |
 | LVM (`test-vg`) | loop file on the SD card, created by hand | loop file `/var/lib/runphi/lvm.img` (3 GB, sparse), created at the first boot by `S29lvm-loop` |
 | Clock | starts at 1970, `adjust_time.sh` | QEMU's RTC: the PC's time |
@@ -117,11 +115,10 @@ docker images | grep runphi-kvm-guest   # initramfs, pinned-net, steer, lvm
 ```
 
 The tests of [kria-kvm's RUNPHI.md](../../kria/kvm/RUNPHI.md#5-tests-to-run-by-hand)
-then run as they are (runphi_manager `08ff770`), as does everything else in that guide (how runPHI drives the guests, every
-`/boot/config.json` field, troubleshooting), with the differences of the
-table above. The cgroup of a container is `/sys/fs/cgroup/docker/<full id>`
-(cgroup v2) instead of `/sys/fs/cgroup/cpuset/docker/<full id>`. All of them
-(5.1 to 5.7) give the results that the guide shows for the board, except that
+then run as they are, as does everything else in that guide (how runPHI drives
+the guests, every `/boot/config.json` field, troubleshooting), with the
+differences of the table above. All of them (5.1 to 5.7) give the results
+that the guide shows for the board, except that
 the guests' GIC is a GICv3: the domain type is `kvm`, a guest reaches its
 login prompt in about 30 to 45 seconds, pinned vCPUs run at SCHED_FIFO 99 on
 their CPUs with QEMU's other threads on the remaining ones (QEMU in the

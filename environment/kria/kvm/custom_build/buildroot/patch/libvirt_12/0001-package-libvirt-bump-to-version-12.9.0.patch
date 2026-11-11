@@ -1,0 +1,126 @@
+Subject: [PATCH] package/libvirt: bump to version 12.9.0
+
+Buildroot (2026.08.1 and master) has libvirt 7.10.0 with QEMU 11.0.0, and
+libvirt 7.10 passes options that QEMU has removed since (-no-acpi first): no
+QEMU domain starts. libvirt 12.9.0 supports QEMU 11.
+
+- yajl was replaced by json-c (json_c option), which the QEMU driver needs:
+  the qemu option selects json-c instead of yajl, and nss depends on json-c
+- driver_secrets was renamed driver_secret
+- libvirt's build runs python3 (its own rpcgen and build scripts)
+
+The init scripts create /var/log/libvirt and its qemu directory before
+starting the daemons: /var/log is in tmpfs, and the libvirt 12 daemons
+fail to start without it ("failed to open /var/log/libvirt/virtlogd.log").
+
+Applies after the libvirt_cgroup_v2 patch.
+---
+diff --git a/package/libvirt/Config.in b/package/libvirt/Config.in
+index a00c4569..8a381d4f 100644
+--- a/package/libvirt/Config.in
++++ b/package/libvirt/Config.in
+@@ -77,7 +77,7 @@ config BR2_PACKAGE_LIBVIRT_QEMU
+ 	select BR2_PACKAGE_LIBSECCOMP
+ 	select BR2_PACKAGE_QEMU
+ 	select BR2_PACKAGE_QEMU_SYSTEM
+-	select BR2_PACKAGE_YAJL
++	select BR2_PACKAGE_JSON_C
+ 	help
+ 	  QEMU/KVM support
+ 
+diff --git a/package/libvirt/S91virtlogd b/package/libvirt/S91virtlogd
+index 03d17b5d..4cd53650 100644
+--- a/package/libvirt/S91virtlogd
++++ b/package/libvirt/S91virtlogd
+@@ -11,6 +11,11 @@ VIRTLOGD_ARGS=""
+ 
+ start() {
+ 	printf 'Starting %s: ' "$DAEMON"
++	# /var/log is in tmpfs (Buildroot's skeleton): create the log directories
++	# of the daemons and of the QEMU driver at every boot
++	mkdir -p /var/log/libvirt/qemu
++	chmod 700 /var/log/libvirt
++	chmod 750 /var/log/libvirt/qemu
+ 	# shellcheck disable=SC2086 # we need the word splitting
+ 	start-stop-daemon -S -q -p "$PIDFILE" -x "$EXECFILE" \
+ 		-- -d $VIRTLOGD_ARGS
+diff --git a/package/libvirt/S92libvirtd b/package/libvirt/S92libvirtd
+index 35368ef5..f989bb6b 100644
+--- a/package/libvirt/S92libvirtd
++++ b/package/libvirt/S92libvirtd
+@@ -79,6 +79,11 @@ start() {
+ 	rm_stale_dnsmasq
+ 	load_modules
+ 	printf 'Starting %s: ' "$DAEMON"
++	# /var/log is in tmpfs (Buildroot's skeleton): create the log directories
++	# of the daemons and of the QEMU driver at every boot
++	mkdir -p /var/log/libvirt/qemu
++	chmod 700 /var/log/libvirt
++	chmod 750 /var/log/libvirt/qemu
+ 	# shellcheck disable=SC2086 # we need the word splitting
+ 	start-stop-daemon -S -q -p "$PIDFILE" -x "$EXECFILE" \
+ 		-- -d $LIBVIRTD_ARGS
+diff --git a/package/libvirt/libvirt.hash b/package/libvirt/libvirt.hash
+index de9ebff5..0b46f7d4 100644
+--- a/package/libvirt/libvirt.hash
++++ b/package/libvirt/libvirt.hash
+@@ -1,3 +1,3 @@
+ # locally computed
+-sha256  cb318014af097327928c6e3d72922e3be02a3e6401247b2aa52d9ab8e0b480f9  libvirt-7.10.0.tar.xz
++sha256  dcf579d8a949f4cbf56820529d48f200382a48ea12855ffded7c16a189353cd7  libvirt-12.9.0.tar.xz
+ sha256  8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643  COPYING
+diff --git a/package/libvirt/libvirt.mk b/package/libvirt/libvirt.mk
+index 7f2a33e9..5b833a9e 100644
+--- a/package/libvirt/libvirt.mk
++++ b/package/libvirt/libvirt.mk
+@@ -4,7 +4,7 @@
+ #
+ ################################################################################
+ 
+-LIBVIRT_VERSION = 7.10.0
++LIBVIRT_VERSION = 12.9.0
+ LIBVIRT_SITE = https://libvirt.org/sources
+ LIBVIRT_SOURCE = libvirt-$(LIBVIRT_VERSION).tar.xz
+ LIBVIRT_LICENSE = LGPL-2.1+
+@@ -15,6 +15,7 @@ LIBVIRT_DEPENDENCIES = \
+ 	host-libxslt \
+ 	host-nfs-utils \
+ 	host-pkgconf \
++	host-python3 \
+ 	host-python-docutils \
+ 	gnutls \
+ 	libglib2 \
+@@ -42,7 +43,7 @@ LIBVIRT_CONF_OPTS = \
+ 	-Ddriver_libxl=disabled \
+ 	-Ddriver_openvz=disabled \
+ 	-Ddriver_remote=enabled \
+-	-Ddriver_secrets=enabled \
++	-Ddriver_secret=enabled \
+ 	-Ddriver_test=disabled \
+ 	-Ddriver_vbox=disabled \
+ 	-Ddriver_vmware=disabled \
+@@ -186,11 +187,11 @@ else
+ LIBVIRT_CONF_OPTS += -Dstorage_lvm=disabled
+ endif
+ 
+-ifeq ($(BR2_PACKAGE_YAJL),y)
+-LIBVIRT_CONF_OPTS += -Dyajl=enabled
+-LIBVIRT_DEPENDENCIES += yajl
++ifeq ($(BR2_PACKAGE_JSON_C),y)
++LIBVIRT_CONF_OPTS += -Djson_c=enabled
++LIBVIRT_DEPENDENCIES += json-c
+ else
+-LIBVIRT_CONF_OPTS += -Dyajl=disabled
++LIBVIRT_CONF_OPTS += -Djson_c=disabled
+ endif
+ 
+ ifeq ($(BR2_PACKAGE_LIBVIRT_DAEMON),y)
+@@ -208,7 +209,7 @@ LIBVIRT_CONF_OPTS += -Dlibssh=disabled
+ endif
+ 
+ # Can't build nss plugin without network or yajl
+-ifeq ($(BR2_PACKAGE_LIBNSS)$(BR2_PACKAGE_YAJL),yy)
++ifeq ($(BR2_PACKAGE_LIBNSS)$(BR2_PACKAGE_JSON_C),yy)
+ LIBVIRT_CONF_OPTS += -Dnss=enabled
+ LIBVIRT_DEPENDENCIES += libnss
+ else

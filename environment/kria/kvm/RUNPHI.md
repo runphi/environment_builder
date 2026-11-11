@@ -47,8 +47,8 @@ runPHI then looks at the container's root filesystem:
   therefore work under the `runphi` runtime too.
 
 The OCI annotation `org.runphi.runtime` (`"runphi"` or `"runc"`) overrides
-this choice. Docker 23 on the board has no option to set annotations;
-Kubernetes, through containerd, has.
+this choice, for example `docker run --annotation org.runphi.runtime=runc ...`;
+Kubernetes sets it through containerd.
 
 ### From `docker run` to a virtual machine
 
@@ -101,9 +101,10 @@ See it with `virsh dumpxml runphi-<id>` or `cat /run/runPHI/<id>/domain.xml`.
 |---|---|
 | CPUs | 4 Cortex-A53, CPUs 0–3 |
 | RAM | 3.7 GB usable |
-| Kernel | Linux 6.1.70 PREEMPT_RT, KVM in nVHE mode, cgroup v1, no `CONFIG_RT_GROUP_SCHED` |
-| Virtualization | libvirt 7.10 (`libvirtd`), QEMU 8.0.2 (`qemu-system-aarch64`) |
-| Docker | 23.0.5, data on the SD card (`/mnt/sd/runphi/docker`), runtimes `runc` (default) and `runphi` |
+| Kernel | Linux 6.1.70 PREEMPT_RT, KVM in nVHE mode, cgroup v2, no `CONFIG_RT_GROUP_SCHED` |
+| Rootfs | Buildroot 2026.08.1 (glibc 2.44) |
+| Virtualization | libvirt 12.9.0 (`libvirtd`), QEMU 11.0.0 (`qemu-system-aarch64`) |
+| Docker | 28.5.2, data on the SD card (`/mnt/sd/runphi/docker`), runtimes `runc` (default) and `runphi` |
 | LVM | volume group `test-vg`, 6 GB, on the loop file `/mnt/sd/runphi/lvm.img`, attached at boot by `/etc/init.d/S29lvm-loop` |
 | Tools | `virsh`, `ps` (procps-ng), `chrt`, `lvs`/`vgs`, `cyclictest`, `stress-ng`, `curl` |
 
@@ -185,13 +186,14 @@ the container may use, as normal (SCHED_OTHER) threads.
 A vCPU listed in `vcpu_pinning` is bound to its host CPU and runs as
 SCHED_FIFO priority 99, the highest real-time priority. libvirt applies both
 when it creates the domain. Then runPHI moves QEMU into the container's
-cgroup, which on this kernel (cgroup v1) resets the threads' CPU affinity, so
+cgroup, which on this kernel (Linux 6.1: cgroup v1, and v2 before Linux 6.2)
+resets the threads' CPU affinity, so
 runPHI pins them again with `sched_setaffinity`. With `docker run
 --cpuset-cpus`, every pinned CPU must be in that set, or creating the
 container fails with `EINVAL`.
 
 QEMU's other threads (`qemu-system-aar`, the main loop that handles the
-guest's shutdown and every libvirt request, and `IO mon_iothread`) must not
+guest's shutdown and every libvirt request, `call_rcu` and `IO mon_iothread`) must not
 share a CPU with a SCHED_FIFO 99 vCPU: there they only run when the vCPU
 sleeps. After a guest powers off, the vCPU thread keeps its CPU busy inside
 KVM until QEMU's main loop stops it. A main loop on that CPU then never runs,
@@ -356,18 +358,18 @@ Expected:
 
 ```
   TID COMMAND         PSR CLS RTPRIO
- 4449 qemu-system-aar   0  TS      -
- 4450 qemu-system-aar   1  TS      -
- 4451 IO mon_iothread   1  TS      -
- 4452 CPU 0/KVM         2  FF     99
- 4453 CPU 1/KVM         3  FF     99
+ 1311 qemu-system-aar   1  TS      -
+ 1314 call_rcu          0  TS      -
+ 1315 IO mon_iothread   0  TS      -
+ 1316 CPU 0/KVM         2  FF     99
+ 1317 CPU 1/KVM         3  FF     99
 ```
 
 and `Cpus_allowed_list` `0-1` for the first three threads, `2` and `3` for
 the vCPUs. `PSR` is the CPU the thread last ran on, `FF` is SCHED_FIFO.
 `virsh emulatorpin $(dom g2)` shows `0-1`. The cgroup of QEMU is the
-container's: `grep cpuset /proc/$(qpid g2)/cgroup` shows `/docker/<full id>`,
-and `cat /sys/fs/cgroup/cpuset/docker/$(docker inspect -f '{{.Id}}' g2)/cpuset.cpus`
+container's: `cat /proc/$(qpid g2)/cgroup` shows `0::/docker/<full id>`,
+and `cat /sys/fs/cgroup/docker/$(docker inspect -f '{{.Id}}' g2)/cpuset.cpus`
 shows `0-3`: the container's `2-3` plus the CPUs of QEMU's other threads.
 
 The network: `grep lease /var/log/libvirt/qemu/$(dom g2)-serial.log` shows
@@ -424,7 +426,7 @@ docker run -d --name bad --runtime=runphi --cpuset-cpus 0,1 runphi-kvm-guest:pin
 Docker prints:
 
 ```
-docker: Error response from daemon: failed to create shim task: OCI runtime create failed: cannot pin vCPU 0 (thread 3556) to CPU 2: EINVAL: Invalid argument: unknown.
+docker: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: cannot pin vCPU 0 (thread 2697) to CPU 2: EINVAL: Invalid argument
 ```
 
 ```sh

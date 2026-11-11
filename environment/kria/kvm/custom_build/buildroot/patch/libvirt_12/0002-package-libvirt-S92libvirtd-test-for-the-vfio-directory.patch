@@ -1,0 +1,26 @@
+Subject: [PATCH] package/libvirt: S92libvirtd: test for the vfio directory
+
+load_modules() tests that each directory exists before searching it for
+modules, but the test before the search of drivers/vfio is for
+drivers/net, the directory of the search before it. With a kernel that
+has modules in drivers/net but none in drivers/vfio (VFIO disabled or
+built in), find prints at every start:
+
+  Loading kernel modules: find: /lib/modules/<version>/kernel/drivers/vfio: No such file or directory
+
+Test for drivers/vfio, as the other two tests do for the directory they
+search.
+
+Present in 2026.08.1 and master.
+---
+--- a/package/libvirt/S92libvirtd
++++ b/package/libvirt/S92libvirtd
+@@ -31,7 +31,7 @@
+ 	[ -d "/lib/modules/$kver/kernel/drivers/vhost" ] && \
+ 		find "/lib/modules/$kver/kernel/drivers/vhost" \
+ 		-name "vhost?net.ko*" >> "$TMP_MODULE_LIST"
+-	[ -d "/lib/modules/$kver/kernel/drivers/net" ] && \
++	[ -d "/lib/modules/$kver/kernel/drivers/vfio" ] && \
+ 		find "/lib/modules/$kver/kernel/drivers/vfio" \
+ 		-name "*.ko*" >> "$TMP_MODULE_LIST"
+ 	while read -r f; do
