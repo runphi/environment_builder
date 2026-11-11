@@ -1,6 +1,6 @@
-# Static address, the same in both boot modes:
-# - booted from the SD card, ifup configures eth0 with it (the gateway also
-#   serves DHCP, through dhcpcd, but with dynamic addresses);
+# Static address, the same in both boot modes, and the only one: there is no
+# DHCP client (the DNS server is in /etc/resolv.conf):
+# - booted from the SD card, ifup configures eth0 with it;
 # - with an NFS root, nfs_check makes ifup leave eth0 alone: the kernel has
 #   already configured it from the ip= argument of boot_tftp.cmd, and taking it
 #   down would cut off the root filesystem.

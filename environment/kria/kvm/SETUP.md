@@ -127,8 +127,10 @@ rebuild or a re-extraction of the NFS root:
   device and activates the VG at boot, and undoes both at shutdown.
 - `etc/network/interfaces`: eth0 statically on 192.168.100.46 when booted from
   the SD card (with an NFS root, `nfs_check` leaves eth0 to the kernel's `ip=`).
-  The gateway also serves DHCP, so `dhcpcd` adds a dynamic second address and
-  the DNS server in both modes.
+  That is the board's only address: the rootfs has no DHCP client.
+- `etc/resolv.conf`: the DNS server, the gateway 192.168.100.254, in both boot
+  modes (it replaces Buildroot's link to `/tmp/resolv.conf`, which only a DHCP
+  client would write).
 - `etc/default/dhcpd`: `S80dhcp-server` does not start ISC `dhcpd`, which has
   no network to serve.
 - `root/boot_mode.sh`: switches between SD and TFTP+NFS boot, and sets the
