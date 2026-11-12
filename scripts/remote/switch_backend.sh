@@ -3,7 +3,7 @@
 usage() {
   echo -e "Usage: $0 \r\n \
   This script selects the environment (the backend) that a <target> board boots over TFTP+NFS.\r\n \
-  Run it where tftpboot/ is served (the TFTP and NFS server, 192.168.100.45 in the lab):\r\n \
+  Run it where tftpboot/ is served (the TFTP and NFS server, default is 192.168.100.45):\r\n \
   it makes tftpboot/<target>.scr a link to <target>-<backend>/boot.scr, which the board's\r\n \
   SD card fetches at every boot (its boot script is boot_select.cmd, see -g).\r\n \
     [-t <target>]\r\n \
