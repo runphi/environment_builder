@@ -6,6 +6,8 @@ usage() {
   Run it where tftpboot/ is served (the TFTP and NFS server, default is 192.168.100.45):\r\n \
   it makes tftpboot/<target>.scr a link to <target>-<backend>/boot.scr, which the board's\r\n \
   SD card fetches at every boot (its boot script is boot_select.cmd, see -g).\r\n \
+  Selecting also gives the environment's NFS root the board's ssh host keys, those of\r\n \
+  the target's other environments (scripts/common/host_keys.sh), so ssh knows the board.\r\n \
     [-t <target>]\r\n \
     [-b <backend> select <target>-<backend> from the next boot on]\r\n \
     [-r reboot the board now (ssh to the IP of the environment)]\r\n \
@@ -22,6 +24,7 @@ usage() {
 current_dir=$(dirname -- "$(readlink -f -- "$0")")
 script_dir=$(dirname "${current_dir}")
 source "${script_dir}"/common/common.sh
+source "${script_dir}"/common/host_keys.sh
 
 SELECT=""
 REBOOT=0
@@ -131,6 +134,15 @@ if [[ -n "${SELECT}" ]]; then
   if command -v exportfs >/dev/null 2>&1 && [[ $(id -u) -eq 0 ]]; then
     exportfs | grep -q "^${nfs_root}\([[:space:]]\|$\)" ||
       echo -e "${warn}WARNING: ${nfs_root} is not exported (/etc/exports, exportfs -r)${norm}"
+  fi
+  # The board presents the same ssh host keys in every environment: copy the
+  # types this NFS root lacks from the other environments (host_keys.sh)
+  if [[ $(id -u) -eq 0 ]]; then
+    install_board_host_keys "${TARGET}" "${SELECT}"
+  else
+    other=$(host_key_source "${TARGET}" "${SELECT}")
+    [[ -n "${other}" && -n "$(host_keys_differ "${TARGET}" "${SELECT}" "${other}")" ]] &&
+      echo -e "${warn}WARNING: ${env} has other ssh host keys than ${TARGET}-${other}${norm}"
   fi
   ln -sfn "${env}/boot.scr" "${link}" || exit 1
   echo "${TARGET} boots ${env} from the next boot on (${link} -> ${env}/boot.scr)"

@@ -165,7 +165,10 @@ where `tftpboot/` is served:
 ./scripts/remote/switch_backend.sh -t <target> -b <backend> -r   # select <target>-<backend>, reboot the board
 ```
 
-This makes `tftpboot/<target>.scr` a link to `tftpboot/<target>-<backend>/boot.scr`.
+This makes `tftpboot/<target>.scr` a link to `tftpboot/<target>-<backend>/boot.scr`,
+after giving the environment's NFS root the board's ssh host keys (those of its
+other environments, as `setup_nfs_rootfs.sh` does too): the board is one machine
+at one address, and ssh would refuse it if each environment had its own keys.
 The board's SD card runs it through a generic boot script, which falls back to
 `boot_sd.scr` on the same partition without the server. Generate it once
 with `./scripts/remote/switch_backend.sh -t <target> -g boot_tftp.scr` and put it on

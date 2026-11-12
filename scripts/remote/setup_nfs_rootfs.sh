@@ -12,6 +12,10 @@
 # non-setuid busybox, so mount, umount and su fail on the target in confusing
 # ways. For the same reason the overlay is applied with --chown=root:root.
 #
+# The NFS root gets the board's ssh host keys: those of the other environments
+# of the same target (scripts/common/host_keys.sh), so that the board presents
+# the same host keys whichever environment it boots (switch_backend.sh).
+#
 # The kernel modules and the Jailhouse tree are NOT handled here: they come from
 #   scripts/compile/linux_compile.sh     -n
 #   scripts/compile/jailhouse_compile.sh -n
@@ -22,6 +26,7 @@ usage() {
   This script populates the NFS root filesystem of the selected <target>/<backend>:\r\n \
     [-f force re-extraction of the tarball over an existing rootfs]\r\n \
     [-o only re-apply the install overlay, do not touch the tarball]\r\n \
+    [-k <backend> give it the ssh host keys of <target>-<backend>, replacing its own of those types]\r\n \
     [-t <target>]\r\n \
     [-b <backend>]\r\n \
     [-h help]" 1>&2
@@ -32,12 +37,17 @@ usage() {
 current_dir=$(dirname -- "$(readlink -f -- "$0")")
 script_dir=$(dirname "${current_dir}")
 source "${script_dir}"/common/common.sh
+source "${script_dir}"/common/host_keys.sh
 
 FORCE=0
 OVERLAY_ONLY=0
+KEY_SOURCE=""
 
-while getopts "fot:b:h" o; do
+while getopts "fok:t:b:h" o; do
   case "${o}" in
+  k)
+    KEY_SOURCE=${OPTARG}
+    ;;
   f)
     FORCE=1
     ;;
@@ -112,6 +122,10 @@ else
   echo "No install directory at ${install_dir}, skipping the overlay."
 fi
 
+# The board's ssh host keys (see the header)
+install_board_host_keys "${TARGET}" "${BACKEND}" "${KEY_SOURCE}"
+KEYS_STATUS=$?
+
 echo ""
 echo "NFS root filesystem ready: ${NFS_ROOT}"
 echo "  size:    $(du -sh "${NFS_ROOT}" | cut -f1)"
@@ -121,3 +135,8 @@ echo ""
 echo "Remember to export it and reload the exports, e.g.:"
 echo "  echo '${NFS_ROOT} *(rw,sync,no_root_squash,no_subtree_check)' >> /etc/exports"
 echo "  exportfs -r"
+
+if [ ${KEYS_STATUS} -ne 0 ]; then
+  echo "ERROR: the ssh host keys of ${TARGET}-${BACKEND} are not the board's (see above)"
+  exit 1
+fi

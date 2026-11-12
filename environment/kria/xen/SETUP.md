@@ -141,7 +141,9 @@ hand:
 cp environment/kria/xen/output/rootfs/xen environment/kria/xen/output/boot/system.dtb environment/kria/xen/output/boot/boot.scr tftpboot/kria-xen/
 ```
 
-Then, on the server, populate the NFS root and export it:
+Then, on the server, populate the NFS root and export it. `setup_nfs_rootfs.sh`
+also gives it the board's ssh host keys, those of kria-kvm's NFS root, so ssh
+knows the board in both environments (`scripts/common/host_keys.sh`):
 
 ```sh
 sudo ./scripts/remote/setup_nfs_rootfs.sh -t kria -b xen

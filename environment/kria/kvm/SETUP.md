@@ -185,9 +185,12 @@ Then populate the NFS root on the server, as for the other environments:
 sudo ./scripts/remote/setup_nfs_rootfs.sh -t kria -b kvm
 ```
 
-When the NFS root is extracted afresh (a new Buildroot version), copy the old
-one's `/etc/dropbear` into it before the board boots it, or the board gets a
-new ssh host key.
+The board has one set of ssh host keys in all its environments:
+`setup_nfs_rootfs.sh` (and `switch_backend.sh`) give an NFS root the key types
+it lacks from the Kria's other environments (`scripts/common/host_keys.sh`), so
+a freshly extracted NFS root (a new Buildroot version) gets the board's keys
+before its first boot, as long as another environment has them (kria-xen);
+`-k <backend>` takes the keys of that environment instead of conflicting ones.
 
 ### Updating the rootfs of a running board
 
