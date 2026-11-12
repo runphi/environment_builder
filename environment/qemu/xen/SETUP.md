@@ -13,7 +13,7 @@ Latencies and timings mean nothing here.
 | Component | Built | Notes |
 |---|---|---|
 | QEMU (`xlnx_rel_v2026.1.1`, QEMU 8.2.7) | yes | the emulated board, the same release as `qemu-jailhouse` and `qemu-kvm` |
-| Xen 4.22.0 | yes, by Buildroot | hypervisor (`output/rootfs/xen`) and tools (`xl`, `xenstored`, ...) of the same version: Buildroot's `xen` package, bumped from 4.21.1 by the `xen_4_22` patch (Buildroot master's commit) |
+| Xen 4.22.0 | yes, by Buildroot | hypervisor (`output/rootfs/xen`) and tools (`xl`, `xenstored`, ...) of the same version: Buildroot's `xen` package, bumped from 4.21.1 by the `xen_4_22` patches (Buildroot master's commit), with Xen's stable-4.22 fix of the SMCCC call arguments (see the patch README: qemu-xen worked without it, on the ZynqMP of kria-xen Dom0 has no clocks without it) |
 | Linux (`xlnx_rebase_v6.1_LTS`) | yes | `xen_qemu_kernel_defconfig`: `xen_zcu104_kernel_defconfig` plus the drivers of QEMU's `virt` board and what Docker 28 needs on cgroup v2 (see `environment_cfgs/qemu-xen.sh`); Dom0 and the guests' kernel |
 | Buildroot 2026.08.1 | yes | `xen_qemu_buildroot_defconfig`: `xen_zcu104_buildroot_defconfig` with the hypervisor and an ext4 disk image (zcu104-xen is still on Buildroot 2023.05) |
 | runPHI (`backend_xen`) | from runphi_manager | built with this environment's Buildroot toolchain, see [runPHI](#runphi) |
@@ -84,14 +84,16 @@ vgs test-vg              # 3 GB, free
 
 `/root/guest/make_test_images.sh` builds two images from `/root/guest/Image`
 (this environment's kernel) and `/root/guest/rootfs.cpio.gz`:
-`runphi-xen-guest:initramfs` and `runphi-xen-guest:lvm`.
+`runphi-xen-guest:initramfs` and `runphi-xen-guest:lvm`. The initramfs has its
+login prompt on `ttyAMA0` (QEMU's PL011, for the KVM guests), which a Xen
+domain does not have: the images put it on `hvc0`, the domain's console.
 
 ```sh
 /root/guest/make_test_images.sh
 docker run -d --name x1 --runtime=runphi runphi-xen-guest:initramfs
 xl list                  # the domain, named after the container ID (24 characters)
 cat /run/runPHI/*/config.cfg   # the xl configuration runPHI generated
-xl console <domain>      # the guest's console; leave with Ctrl+]
+xl console <domain>      # the guest's console (login prompt on hvc0); leave with Ctrl+]
 docker rm -f x1
 xl list; ls /run/runPHI  # only Domain-0, nothing left
 
@@ -119,6 +121,10 @@ and are removed with nothing left behind, on Docker's default network; three
 guests run at once on CPUs 3, 2 and 1, and a fourth and a guest larger than
 Xen's free memory are refused (`not enough free memory: need 1200 MB, have 992
 MB`).
+
+Retested on 2026-11-12 (runphi_manager `04473e0`) with Xen's SMCCC fix and
+the images' login prompt on `hvc0`: the same results, and both images reach
+their login prompt in about 15 seconds.
 
 ## Limitations
 
