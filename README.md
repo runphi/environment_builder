@@ -154,7 +154,26 @@ Load/update components (e.g., RunPHI and Jailhouse) on the target
 ```
 
 
-### 3.6 Test the Environment
+### 3.6 (Optional) Switch a Board Between Backends
+
+A board with several environments (e.g. `kria-kvm` and `kria-xen`) that boots
+over TFTP+NFS boots the one that the TFTP server selects for it. On the server,
+where `tftpboot/` is served:
+
+```bash
+./scripts/remote/switch_backend.sh -t <target>                   # the environments of <target>, the selected one
+./scripts/remote/switch_backend.sh -t <target> -b <backend> -r   # select <target>-<backend>, reboot the board
+```
+
+This makes `tftpboot/<target>.scr` a link to `tftpboot/<target>-<backend>/boot.scr`.
+The board's SD card runs it through a generic boot script, which falls back to
+`boot_sd.scr` on the same partition without the server. Generate it once
+with `./scripts/remote/switch_backend.sh -t <target> -g boot_tftp.scr` and put it on
+the SD card's boot partition (see the `SETUP.md` of the environment, e.g.
+`environment/kria/kvm/SETUP.md`).
+
+
+### 3.7 Test the Environment
 
 Follow the `DEMO.md` in the relevant environment folder.
 
@@ -164,7 +183,7 @@ environment/<target>/<backend>/DEMO.md
 
 
 
-### 3.7 Clean the Build
+### 3.8 Clean the Build
 
 Inside the Docker container:
 

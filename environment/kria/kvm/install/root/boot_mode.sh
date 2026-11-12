@@ -3,9 +3,9 @@
 # boot_mode.sh - choose how the Kria boots next time
 #
 #   boot_mode.sh                 show the boot mode, CPU isolation and where / comes from
-#   boot_mode.sh sd              kernel, DTB and rootfs from the SD card
-#   boot_mode.sh tftp            kernel and DTB over TFTP, rootfs over NFS from
-#                                192.168.100.45 (falls back to the SD card)
+#   boot_mode.sh sd              kria-kvm: kernel, DTB and rootfs from the SD card
+#   boot_mode.sh tftp            over TFTP+NFS from 192.168.100.45, the environment
+#                                that the server selects (falls back to the SD card)
 #   boot_mode.sh iso <cpus>      isolate <cpus> (e.g. 3, 2-3) from the host kernel
 #   boot_mode.sh iso off         no CPU isolation
 #   -r                           reboot right after switching
@@ -15,19 +15,36 @@
 #
 # U-Boot's distro boot runs boot.scr from the FAT partition of the SD card.
 # Both variants are kept next to it, as boot_sd.scr and boot_tftp.scr, and
-# switching copies one of them over boot.scr. Works from either boot mode.
-# The SD and NFS root filesystems are separate copies: what changes in one
-# does not appear in the other.
+# switching copies one of them over boot.scr. Works from any boot mode, in
+# kria-kvm and in kria-xen (the same script is in both overlays). The SD and
+# NFS root filesystems are separate copies: what changes in one does not
+# appear in the other.
 #
-# Both boot scripts read the isolation arguments from isolargs.txt on the
-# same FAT partition (one line, isolargs=...), which "iso" writes:
+# boot_tftp.scr is environment_builder's scripts/remote/boot_select.cmd: it
+# runs kria.scr from the server, which switch_backend.sh points at the boot
+# script of an environment of the Kria, e.g. on the server
+#   scripts/remote/switch_backend.sh -t kria -b xen -r
+# boots kria-xen; "-b kvm" kria-kvm. This script shows the selection.
+#
+# kria-kvm's boot scripts (and the SD fallback of kria-xen's) read the
+# isolation arguments from isolargs.txt on the same FAT partition (one line,
+# isolargs=...), which "iso" writes:
 #   isolcpus=managed_irq,domain,nohz,<cpus> nohz_full=<cpus> rcu_nocbs=<cpus>
 #   irqaffinity=<the other CPUs>
 # so the scheduler, the tick, RCU callbacks and the device interrupts stay off
-# <cpus>. Without the file the kernel gets no isolation arguments.
+# <cpus>. Without the file the kernel gets no isolation arguments. Under Xen
+# they do not apply: Dom0 has one vCPU, on CPU 0, and runPHI gives each domain
+# CPUs of its own.
 
 BOOT_PART=/dev/mmcblk1p1
 ISO_FILE=isolargs.txt
+MODES="sd tftp"
+# The KV260's four Cortex-A53. Not read from sysfs: Dom0 of Xen sees only its
+# own vCPUs.
+BOARD_CPUS=0-3
+# The TFTP server and the script it selects for the board (boot_select.cmd)
+SERVER=192.168.100.45
+SELECTION=kria.scr
 
 usage() {
 	sed -n '5,14s/^# \{0,1\}//p' "$0"
@@ -75,11 +92,11 @@ iso_args() {
 	esac
 	isolated=$(expand_cpus "$1")
 	housekeeping=""
-	for c in $(expand_cpus "$(cat /sys/devices/system/cpu/possible)"); do
+	for c in $(expand_cpus "$BOARD_CPUS"); do
 		echo "$isolated" | grep -qx "$c" || housekeeping="$housekeeping${housekeeping:+,}$c"
 	done
 	for c in $isolated; do
-		[ -d "/sys/devices/system/cpu/cpu$c" ] || {
+		expand_cpus "$BOARD_CPUS" | grep -qx "$c" || {
 			echo "ERROR: there is no CPU $c" >&2
 			return 1
 		}
@@ -107,13 +124,26 @@ if [ -z "$MNT" ]; then
 fi
 
 next_mode() {
-	for m in sd tftp; do
+	for m in $MODES; do
 		if cmp -s "$MNT/boot.scr" "$MNT/boot_$m.scr"; then
 			echo "$m"
 			return
 		fi
 	done
 	echo "unknown (boot.scr matches neither boot_sd.scr nor boot_tftp.scr)"
+}
+
+# The environment of the script that the server selects, from the name in its
+# image header (bootscr_compile.sh writes "<target>-<backend> <script>")
+server_selection() {
+	f=/tmp/boot_mode.sel.$$
+	if tftp -g -r "$SELECTION" -l "$f" "$SERVER" >/dev/null 2>&1; then
+		name=$(dd if="$f" bs=1 skip=32 count=32 2>/dev/null | tr -d '\000')
+		echo "${name%% *}"
+	else
+		echo "none ($SERVER has no $SELECTION: the SD card)"
+	fi
+	rm -f "$f"
 }
 
 next_iso() {
@@ -124,11 +154,18 @@ next_iso() {
 	fi
 }
 
+under_xen() {
+	[ "$(cat /sys/hypervisor/type 2>/dev/null)" = xen ]
+}
+
 running_from() {
 	if awk '$2 == "/" && $3 == "nfs" { found = 1 } END { exit !found }' /proc/mounts; then
-		echo "NFS (tftp mode)"
+		case "$(cat /proc/cmdline)" in
+		*nfsroot=*/kria/xen/*) echo "NFS, kria-xen (tftp mode)" ;;
+		*) echo "NFS, kria-kvm (tftp mode)" ;;
+		esac
 	else
-		echo "SD card (sd mode)"
+		echo "SD card, kria-kvm (sd mode)"
 	fi
 }
 
@@ -155,10 +192,16 @@ elif [ -n "$ISO" ]; then
 	}
 fi
 
-isolated_now=$(cat /sys/devices/system/cpu/isolated)
+if under_xen; then
+	isolated_now="none: Dom0 of Xen (its vCPUs: xl vcpu-list)"
+else
+	isolated_now=$(cat /sys/devices/system/cpu/isolated)
+fi
 echo "running from:       $(running_from)"
 echo "isolated CPUs now:  ${isolated_now:-none}"
-echo "next boot:          $(next_mode)"
+next=$(next_mode)
+[ "$next" = tftp ] && next="tftp: $(server_selection)"
+echo "next boot:          $next"
 echo "next boot isolargs: $(next_iso)"
 
 if [ "$REBOOT" -eq 1 ]; then

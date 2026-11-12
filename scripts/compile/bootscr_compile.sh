@@ -60,7 +60,9 @@ if [ "${UBUNTU_ROOTFS}" == "y" ]; then
   echo "UBUNTU_ROOTFS"
   mkimage -c none -A arm64 -T script -d "${boot_sources_dir}"/boot.script "${boot_dir}"/"${OUTPUT_NAME}".uimg
 else
-  mkimage -c none -A arm64 -T script -d "${boot_sources_dir}"/"${bootcmd_file}" "${boot_dir}"/"${OUTPUT_NAME}"
+  # The image name says which environment the script belongs to: the board's
+  # boot_mode.sh shows it for the script that switch_backend.sh selects
+  mkimage -c none -A arm64 -T script -n "${TARGET}-${BACKEND} ${bootcmd_file%.cmd}" -d "${boot_sources_dir}"/"${bootcmd_file}" "${boot_dir}"/"${OUTPUT_NAME}"
 fi
 
 if [ $? -ne 0 ]; then

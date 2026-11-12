@@ -29,3 +29,6 @@ HANDOFF_*.md
 tftpboot/*/Image.*.bak
 # QEMU boots output/boot/Image: its copy in tftpboot (linux_compile.sh) is unused
 tftpboot/qemu-*/
+# The environment each board boots over TFTP, selected on the TFTP server by
+# scripts/remote/switch_backend.sh (links to <target>-<backend>/boot.scr)
+tftpboot/*.scr

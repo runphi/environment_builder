@@ -1,9 +1,11 @@
 #---------------------------------------------------------------
 # boot_tftp.cmd - Kria KV260 / KVM: TFTP kernel+DTB, NFS-root rootfs
 #
-# Build with scripts/compile/bootscr_compile.sh -c tftp -o boot_tftp.scr
-# /root/boot_mode.sh on the board selects this script or boot_sd.scr as the
-# boot.scr of the SD card's FAT partition (U-Boot's distro boot runs it).
+# Build with scripts/compile/bootscr_compile.sh -t kria -b kvm (boot.scr),
+# then copy it to tftpboot/kria-kvm/. The SD card's boot script fetches
+# kria.scr from the server, which scripts/remote/switch_backend.sh -t kria
+# -b kvm points here (scripts/remote/boot_select.cmd); /root/boot_mode.sh
+# chooses between that network boot and boot_sd.scr.
 # It can also be started by hand from the U-Boot prompt (from
 # tftpboot/kria-kvm/boot.scr):
 #   setenv ipaddr 192.168.100.46; setenv serverip 192.168.100.45

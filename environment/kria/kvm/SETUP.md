@@ -101,7 +101,9 @@ same as qemu-kvm's, see the README there):
   reservation. The GIC-400 node already lists GICD/GICC/GICH/GICV and the
   maintenance interrupt (PPI 9) that the KVM vGICv2 needs.
 - `boot_tftp.cmd` (default): kernel and DTB from `tftpboot/kria-kvm/` on
-  192.168.100.45, NFS root from `output/rootfs/kria`, SD fallback.
+  192.168.100.45, NFS root from `output/rootfs/kria`, SD fallback. The SD
+  card runs it through the server's selection, see
+  [Switching environments](#switching-environments-kria-kvm-kria-xen).
 - `boot_sd.cmd`: the same kernel, DTB and rootfs, entirely from the SD card
   (see [SD card](#sd-card-standalone-boot-and-boot-mode)).
 
@@ -162,7 +164,6 @@ then `losetup -c /dev/loop0 && pvresize /dev/loop0`.
 ./scripts/build_environment.sh -t kria -b kvm
 ./scripts/compile/dts_compile.sh -t kria -b kvm
 ./scripts/compile/bootscr_compile.sh -t kria -b kvm
-./scripts/compile/bootscr_compile.sh -t kria -b kvm -c tftp -o boot_tftp.scr
 ./scripts/compile/bootscr_compile.sh -t kria -b kvm -c sd -o boot_sd.scr
 ```
 
@@ -173,9 +174,10 @@ and `bootscr_compile.sh` only write to `output/boot/`, so copy the rest by hand:
 cp environment/kria/kvm/output/boot/system.dtb environment/kria/kvm/output/boot/boot.scr tftpboot/kria-kvm/
 ```
 
-`boot.scr` (= `boot_tftp.scr`) is what U-Boot runs when started by hand over
-TFTP. On the SD card, `boot_sd.scr` and `boot_tftp.scr` sit next to `boot.scr`
-and `boot_mode.sh` picks one of them.
+`boot.scr` (`boot_tftp.cmd`) is what the board runs over TFTP when the server
+selects kria-kvm (see below). On the SD card, `boot_sd.scr` and
+`boot_tftp.scr` (the selection script) sit next to `boot.scr` and
+`boot_mode.sh` picks one of them.
 
 Then populate the NFS root on the server, as for the other environments:
 
@@ -212,18 +214,46 @@ the same system with or without the TFTP/NFS server:
 
 | Partition | Contents |
 |---|---|
-| `mmcblk1p1` (FAT) | `Image`, `system.dtb` (as in `tftpboot/kria-kvm/`), `boot_sd.scr`, `boot_tftp.scr`, `boot.scr` (a copy of one of the two), `isolargs.txt` (optional, see below), `BOOT.BIN` (not used: the Kria boots from QSPI), `Image.fixed`, `Image.wfi`, `Image.unpatched` (kernels of the campaign system, see below) |
+| `mmcblk1p1` (FAT) | `Image`, `system.dtb` (as in `tftpboot/kria-kvm/`), `boot_sd.scr`, `boot_tftp.scr` (the network boot: the environment that the server selects), `boot.scr` (a copy of one of the two), `isolargs.txt` (optional, see below), `BOOT.BIN` (not used: the Kria boots from QSPI), `Image.fixed`, `Image.wfi`, `Image.unpatched` (kernels of the campaign system, see below) |
 | `mmcblk1p2` (ext4) | a copy of the NFS rootfs, `runphi/` (Docker store and LVM file, shared by both modes) |
 
-`/root/boot_mode.sh` selects the next boot, from either mode:
+`/root/boot_mode.sh` selects the next boot, from any mode (the same script is
+in kria-xen's rootfs):
 
 ```sh
 /root/boot_mode.sh              # where / comes from, isolated CPUs, next boot mode and isolation
 /root/boot_mode.sh sd -r        # boot from the SD card, reboot now
-/root/boot_mode.sh tftp -r      # boot over TFTP + NFS, reboot now
+/root/boot_mode.sh tftp -r      # boot over TFTP + NFS (what the server selects), reboot now
 /root/boot_mode.sh iso 3        # isolate CPU 3 from the next boot on
 /root/boot_mode.sh iso off      # no isolation
 /root/boot_mode.sh sd iso 3 -r  # both at once
+```
+
+### Switching environments (kria-kvm, kria-xen)
+
+`boot_tftp.scr` on the FAT partition is environment_builder's
+`scripts/remote/boot_select.cmd` for the Kria: it runs `kria.scr` from the
+TFTP server, and on the server `scripts/remote/switch_backend.sh` points
+`tftpboot/kria.scr` at the boot script of one environment of the Kria:
+
+```sh
+./scripts/remote/switch_backend.sh -t kria            # the environments and the selected one
+./scripts/remote/switch_backend.sh -t kria -b xen -r  # kria-xen, reboot the board now
+./scripts/remote/switch_backend.sh -t kria -b kvm -r  # back to kria-kvm
+```
+
+(as root on 192.168.100.45, in `/root/runphi/environment_builder`). The
+selection lives on the server, so it also works when the running system does
+not answer: select, then power-cycle. Without `kria.scr`, or without the
+server, the board boots `boot_sd.scr`. `boot_mode.sh` on the board shows the
+selection (`next boot: tftp: kria-xen`), from the name of the script's image
+header, which `bootscr_compile.sh` sets to `<target>-<backend> <script>`. The
+selection script is generated, and put on the FAT partition once, with:
+
+```sh
+./scripts/remote/switch_backend.sh -t kria -g boot_tftp.scr
+scp -O boot_tftp.scr root@192.168.100.46:/tmp/ && ssh root@192.168.100.46 \
+  'mount /dev/mmcblk1p1 /mnt && cp /tmp/boot_tftp.scr /mnt/ && umount /mnt'
 ```
 
 ### CPU isolation
