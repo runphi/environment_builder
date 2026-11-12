@@ -1,0 +1,44 @@
+From a962be2eea146e06661712159698bc7cbf3305f2 Mon Sep 17 00:00:00 2001
+From: Titouan Christophe <titouan.christophe@mind.be>
+Date: Thu, 24 Sep 2026 11:08:12 +0200
+Subject: [PATCH] package/xen: bump to version 4.22.0
+
+See the release notes:
+https://wiki.xenproject.org/wiki/Xen_Project_4.22_Release_Notes?ref=xenproject.org
+
+Signed-off-by: Titouan Christophe <titouan.christophe@mind.be>
+Signed-off-by: Julien Olivain <ju.o@free.fr>
+---
+ package/xen/xen.hash | 4 ++--
+ package/xen/xen.mk   | 2 +-
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/package/xen/xen.hash b/package/xen/xen.hash
+index c41f0fda60..a6c0291506 100644
+--- a/package/xen/xen.hash
++++ b/package/xen/xen.hash
+@@ -1,6 +1,6 @@
+ # Locally computed after checking pgp signature from:
+-# https://downloads.xenproject.org/release/xen/4.21.1/xen-4.21.1.tar.gz.sig
++# https://downloads.xenproject.org/release/xen/4.22.0/xen-4.22.0.tar.gz.sig
+ # with key 23E3222C145F4475FA8060A783FE14C957E82BD9
+-sha256  e2a69289d6d13c0a71d4f3a39a597741c85c0282d9af1ec5dac495bdcb2872bb  xen-4.21.1.tar.gz
++sha256  b2a14ca369e3cf26f123a455b1603f3962ae9fcee0b8640a9cc33879de198223  xen-4.22.0.tar.gz
+ sha256  9eeacf4e4f91bdbcd16b3282bb86779e3122da032953ebccad4fccdfcf4cb3ac  COPYING
+ sha256  aeab99f147957cd25fe8cc008992d5e5426ea73fb7d429923b5428a1ef1a59ce  LICENSES/GPL-2.0
+diff --git a/package/xen/xen.mk b/package/xen/xen.mk
+index 729d213c02..f8a4100bbc 100644
+--- a/package/xen/xen.mk
++++ b/package/xen/xen.mk
+@@ -4,7 +4,7 @@
+ #
+ ################################################################################
+ 
+-XEN_VERSION = 4.21.1
++XEN_VERSION = 4.22.0
+ XEN_SITE = https://downloads.xenproject.org/release/xen/$(XEN_VERSION)
+ XEN_SELINUX_MODULES = systemd udev xen
+ XEN_LICENSE = GPL-2.0
+-- 
+GitLab
+

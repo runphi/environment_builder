@@ -1,0 +1,81 @@
+Backport of mainline c33efdfcfa6f (in v7.0), not in linux-xlnx
+xlnx_rebase_v6.18_LTS (6.18.40, 85261a88dc95), which has the commit it fixes,
+8f1fc1bf1a3d "dma: contiguous: Reserve default CMA heap" (as 31bbe2fe8bf1).
+The patch below is the upstream one, unchanged; it applies cleanly.
+
+On the KV260 every Xen domain of runPHI (256 MB) crashed at boot: the default
+CMA area of xilinx_defconfig (CMA_SIZE_MBYTES=256) does not fit, and the
+kernel registered the missing (NULL) area as a dma-buf heap:
+  Unable to handle kernel NULL pointer dereference at virtual address 0000000000000058
+  pc : dma_heap_add+0x30/0x29c
+  lr : __add_cma_heap+0x70/0xcc
+  Kernel panic - not syncing: Attempted to kill init! exitcode=0x0000000b
+
+From c33efdfcfa6f80e05ce1ee33694c1bad4994cd78 Mon Sep 17 00:00:00 2001
+From: Shanker Donthineni <sdonthineni@nvidia.com>
+Date: Thu, 29 Jan 2026 12:13:17 -0600
+Subject: [PATCH] dma: contiguous: Check return value of
+ dma_contiguous_reserve_area()
+
+Commit 8f1fc1bf1a3d ("dma: contiguous: Reserve default CMA heap")
+introduced a bug where dma_heap_cma_register_heap() is called with
+a NULL pointer when dma_contiguous_reserve_area() fails to reserve
+the CMA area.
+
+When dma_contiguous_reserve_area() fails, dma_contiguous_default_area
+remains NULL (initialized as a global variable), but the code doesn't
+check the return value and proceeds to call dma_heap_cma_register_heap()
+with this NULL pointer.
+
+Later during boot, add_cma_heaps() iterates through the dma_areas[]
+array and attempts to register heaps. When it encounters the NULL
+pointer stored by the earlier call, it crashes in __add_cma_heap()
+-> dma_heap_add() when trying to dereference the NULL CMA pointer.
+
+The crash manifests as:
+  Unable to handle kernel NULL pointer dereference at virtual address
+  0000000000000038
+  ...
+  Call trace:
+   dma_heap_add+0x40/0x2b0
+   __add_cma_heap+0x80/0xe0
+   add_cma_heaps+0x64/0xb0
+   do_one_initcall+0x60/0x318
+   kernel_init_freeable+0x260/0x2f0
+   kernel_init+0x2c/0x168
+   ret_from_fork+0x10/0x20
+
+Fix this by checking the return value of dma_contiguous_reserve_area()
+and only calling dma_heap_cma_register_heap() when the reservation
+succeeds.
+
+Fixes: 8f1fc1bf1a3d ("dma: contiguous: Reserve default CMA heap")
+Signed-off-by: Shanker Donthineni <sdonthineni@nvidia.com>
+Reviewed-by: T.J. Mercier <tjmercier@google.com>
+Signed-off-by: Marek Szyprowski <m.szyprowski@samsung.com>
+Link: https://lore.kernel.org/r/20260129181317.2429196-1-sdonthineni@nvidia.com
+---
+ kernel/dma/contiguous.c | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/kernel/dma/contiguous.c b/kernel/dma/contiguous.c
+index 0e266979728b21..c56004d314dc2e 100644
+--- a/kernel/dma/contiguous.c
++++ b/kernel/dma/contiguous.c
+@@ -257,10 +257,12 @@ void __init dma_contiguous_reserve(phys_addr_t limit)
+ 		pr_debug("%s: reserving %ld MiB for global area\n", __func__,
+ 			 (unsigned long)selected_size / SZ_1M);
+ 
+-		dma_contiguous_reserve_area(selected_size, selected_base,
+-					    selected_limit,
+-					    &dma_contiguous_default_area,
+-					    fixed);
++		ret = dma_contiguous_reserve_area(selected_size, selected_base,
++						  selected_limit,
++						  &dma_contiguous_default_area,
++						  fixed);
++		if (ret)
++			return;
+ 
+ 		ret = dma_heap_cma_register_heap(dma_contiguous_default_area);
+ 		if (ret)

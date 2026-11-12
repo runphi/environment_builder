@@ -1,0 +1,72 @@
+#!/bin/sh
+#
+# Volume group for the LVM-backed guest disks of runPHI backend_xen
+# ("disk_type": "lvm"), which allocates one logical volume per container from
+# test-vg (its default; /usr/share/runPHI/xen_lvm_vg overrides the name).
+#
+# The root filesystem is on NFS, which cannot hold a physical volume, so the VG
+# lives in a file on the SD card (mounted on /mnt/sd by /etc/fstab) attached
+# through a loop device, in /mnt/sd/runphi-xen/, next to kria-kvm's
+# /mnt/sd/runphi/ (each system has its own Docker store and VG). The first boot
+# creates the file (sparse, SIZE) and the VG in it, as in qemu-xen; every boot
+# attaches the file and activates the VG, and the shutdown undoes both.
+
+NAME=lvm-loop
+IMAGE=/mnt/sd/runphi-xen/lvm.img
+SIZE=6G
+VG=test-vg
+
+# Loop device the image is attached to, if any
+loop_dev() {
+	losetup -a 2>/dev/null | grep "$IMAGE" | cut -d: -f1
+}
+
+do_start() {
+	echo -n "Starting $NAME: "
+	if ! awk '$2 == "/mnt/sd" { found = 1 } END { exit !found }' /proc/mounts; then
+		echo "SKIP (/mnt/sd is not mounted)"
+		return 0
+	fi
+	if [ ! -f "$IMAGE" ]; then
+		mkdir -p "$(dirname "$IMAGE")" && truncate -s "$SIZE" "$IMAGE" || {
+			echo "FAIL (cannot create $IMAGE)"
+			return 1
+		}
+	fi
+	if [ -z "$(loop_dev)" ] && ! losetup -f "$IMAGE"; then
+		echo "FAIL (losetup)"
+		return 1
+	fi
+	if ! vgs "$VG" >/dev/null 2>&1; then
+		if ! pvcreate -q "$(loop_dev)" >/dev/null || ! vgcreate -q "$VG" "$(loop_dev)" >/dev/null; then
+			echo "FAIL (creating $VG on $IMAGE)"
+			return 1
+		fi
+	fi
+	vgchange -ay "$VG" >/dev/null 2>&1 && echo "OK" || echo "FAIL (vgchange $VG)"
+}
+
+do_stop() {
+	echo -n "Stopping $NAME: "
+	vgchange -an "$VG" >/dev/null 2>&1
+	dev=$(loop_dev)
+	[ -n "$dev" ] && losetup -d "$dev"
+	echo "OK"
+}
+
+case "$1" in
+	start)
+		do_start
+		;;
+	stop)
+		do_stop
+		;;
+	restart)
+		do_stop
+		sleep 1
+		do_start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+esac

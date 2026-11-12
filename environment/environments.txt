@@ -8,3 +8,4 @@ tebf0808-jailhouse
 kria-kvm
 qemu-kvm
 qemu-xen
+kria-xen
