@@ -330,7 +330,11 @@ A bare-metal image:
   of the pool; an ELF outside every core's memory is refused, as is a core
   in use;
 - `"net": "yes"` gives the cell one of the root cell's two ivshmem devices
-  (`00:01.0`, `00:02.0`, the root cell's `eth1`, `eth2`), `"none"` none;
+  (`00:01.0`, `00:02.0`, the root cell's `eth1`, `eth2`) and its interrupt:
+  the hypervisor raises a cell's ivshmem INTx at `32 + vpci_irq_base + pin -
+  1` (pin: device + 1), and `platform_info.toml` sets `vpci_irq_base` 108,
+  so IRQ 141 for 00:01.0 and 142 for 00:02.0 (the root cell's are 137 and
+  138), which the cell is given; `"none"` gives neither;
 - any `os_var` but `linux` is a single image (`jailhouse cell load`); Linux
   guests are not implemented in `backend_jailhouse` (refused).
 
@@ -391,6 +395,13 @@ Tested on the KV260 (2026-11-14, runphi_manager with its fixes of that day):
   back in the root cell
 - `linux_demo.sh`: Linux on CPUs 2-3; the root cell pings it over the first
   ivshmem-net link (192.0.2.1 to 192.0.2.10)
+- runPHI's ivshmem interrupts, with a test inmate built from Jailhouse's
+  `ivshmem-demo` (any protocol, the IRQ from the device's INTx pin): two
+  cells with network got 00:01.0 (IRQ 141) and 00:02.0 (IRQ 142) and
+  received the root cell's interrupts when `eth1`, `eth2` went up and down;
+  a cell without network gets no ivshmem interrupt
+- an R5 core 1 cell gets core 1's TCMs (0xffe90000, 0xffeb0000) and DDR
+  (0x3ad00000), as the device tree's `r5f_1` has them
 - runPHI (containerd, `ctr`): at the same time a gic-demo cell on CPU 0
   (64 MB of the pool, network), the FreeRTOS demo on R5 core 0 (core 0's
   region, run to "Successfully ran FreeRTOS Hello World Example") and
@@ -429,16 +440,13 @@ Tested on the KV260 (2026-11-14, runphi_manager with its fixes of that day):
   (PMUFW and ATF of 2022.1 and 2023, see [Firmware](#firmware); the design is
   from Vivado 2024.2). Next steps: update the QSPI firmware, and read the
   SMMU's fault registers from the hypervisor after a partial load.
-- **runPHI's ivshmem interrupts.** runPHI's Ultrascale preamble sets no
-  `vpci_irq_base`, so a networked cell's ivshmem INTx goes to SPI 1 or 2,
-  while its interrupt bitmap allows 146 (`kria_platform_info.toml`). Not
-  tested: the guests used here do not use the network.
 - **R5 demos.** `rpu0-demo` writes to a shared memory at 0x46d00000 that only
   the fork's demo cell grants: in a runPHI container it stops after
   `[RPU-0] Start!`. `rpu1-membomb` writes into R5 core 0's and the soft
   core's memory on purpose (the XMPU test).
-- `zcu104_platform_info.toml` (runphi_manager) has no `[rcpu.<id>]` sections
-  yet: there R5 cells still take the pool's memory.
+- `zcu104_platform_info.toml` (runphi_manager) has neither `[rcpu.<id>]`
+  sections nor `vpci_irq_base` yet: there R5 cells still take the pool's
+  memory and the ivshmem interrupt is the old fixed `ivshmem_pin`.
 
 ## Moving to Linux 6.18
 
