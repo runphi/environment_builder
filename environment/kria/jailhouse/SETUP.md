@@ -11,9 +11,10 @@ with the Omnivisor fork of Jailhouse.
 | Component | Built | Notes |
 |---|---|---|
 | Firmware (FSBL, PMUFW, ATF, U-Boot) | yes, but not flashed | the BOOT.BIN in QSPI, which all the Kria environments boot from; see [Firmware](#firmware) |
-| Linux (`xlnx_rebase_v6.1_LTS`, 6.1.70) | yes | `jailhouse_kria_isolcpu_kernel_defconfig`, PREEMPT_RT; patches `jailhouse_enable`, `omnivisor`, `preempt_rt` (6.1.69-rt21); see [Kernel](#kernel) |
+| Linux (`xlnx_rebase_v6.1_LTS`, 6.1.70) | yes | `jailhouse_kria_isolcpu_kernel_defconfig`, PREEMPT_RT; patches `jailhouse_enable`, `omnivisor`, `preempt_rt` (6.1.69-rt21), `omnv_fpga_rproc`; see [Kernel](#kernel) |
 | Buildroot 2026.08.1 | yes | `jailhouse_kria_buildroot_defconfig`: Docker 28.5.2 with containerd, gcc on the target |
-| Jailhouse (Omnivisor fork, `628a02d8`) | yes | driver, hypervisor, KV260 cells, APU/RPU/RISC-V demos (`-n -r all`); a pyjailhouse fix, see [Jailhouse](#jailhouse) |
+| Jailhouse (Omnivisor fork, `628a02d8`) | yes | driver, hypervisor, KV260 cells, APU/RPU/RISC-V demos (`-n -r all`); three fixes, see [Jailhouse](#jailhouse) |
+| FPGA design | prebuilt | the Omnivisor's DFX design for the KV260, in `install/lib/firmware`; see [Jailhouse and the Omnivisor](#jailhouse-and-the-omnivisor) |
 | runPHI (`backend_jailhouse`) | from runphi_manager | `install/root/runphi`, built with this environment's Buildroot toolchain, see [runPHI](#runphi-backend_jailhouse) |
 | KVM, Xen | no | Jailhouse owns EL2 |
 
@@ -63,6 +64,11 @@ The Jailhouse driver of the fork and the enabling patches support it; see
   its 184c7dce, where the hypervisor filters the power-on calls itself; with
   it the R5 cells work too)
 - `preempt_rt`: 6.1.69-rt21 adapted to 6.1.70, the same as kria-kvm's
+- `omnv_fpga_rproc`: the remoteproc drivers of the Omnivisor's FPGA soft cores,
+  `pico32_remoteproc` (PicoRV32 RISC-V) and `vs_classic_remoteproc` (VS
+  controller), from `DanieleOttaviano/vs_test_omnv` with two probe fixes (the
+  patch header has them); the Jailhouse driver loads them with
+  `request_module()` when a cell loads their partial bitstream
 
 `jailhouse_kria_isolcpu_kernel_defconfig`:
 
@@ -77,7 +83,9 @@ The Jailhouse driver of the fork and the enabling patches support it; see
   `jailhouse_kria_omnv_kernel_defconfig` and the default defconfig have them;
   the isolcpu variant, which this environment has used since 2025-05, did
   not (added 2026-11)
-- the Omnivisor's: `ZYNQMP_R5_REMOTEPROC`, the FPGA manager and regions
+- the Omnivisor's: `ZYNQMP_R5_REMOTEPROC`, the FPGA manager and regions, the
+  two soft-core drivers as modules (`PICO32_REMOTEPROC`,
+  `VS_CLASSIC_REMOTEPROC`)
 - Docker 28 and containerd on cgroup v2: namespaces, the cgroup controllers,
   `BPF_SYSCALL` and `CGROUP_BPF`, `OVERLAY_FS`, `VETH`, `VXLAN`,
   `BRIDGE_NETFILTER`, IPVS, nftables and the legacy iptables tables
@@ -116,15 +124,25 @@ the demos: APU (`inmates/demos/arm64/*.bin`), R5
 (`inmates/demos/riscv/src_*/*.elf`). `load_components_to_remote.sh -j` copies
 the tree to the board's `/root/jailhouse`.
 
-Patch (`custom_build/jailhouse/patch/`,
-`0001-pyjailhouse-the-Omnivisor-s-cell-header-and-cell_load.patch`):
-pyjailhouse, which `jailhouse cell linux` uses, does not follow the fork's
-own structures. Its cell parser misses `num_rcpu_devices` and
-`num_fpga_devices` and reads the memory regions 8 bytes off ("No space found
-to load all images"); its image loader chooses the `cell_load` layout from a
-`config.h` that does not exist (and without `import os`), and uses the ioctl
-number of the structure without the remote-CPU fields (`EINVAL`). The C tool
-(`jailhouse cell create/load/start`) is not affected.
+Patches (`custom_build/jailhouse/patch/omnv/`, `jailhouse_patch.sh -d omnv`):
+
+- `0001-pyjailhouse-...`: pyjailhouse, which `jailhouse cell linux` uses, does
+  not follow the fork's own structures. Its cell parser misses
+  `num_rcpu_devices` and `num_fpga_devices` and reads the memory regions 8
+  bytes off ("No space found to load all images"); its image loader chooses
+  the `cell_load` layout from a `config.h` that does not exist (and without
+  `import os`), and uses the ioctl number of the structure without the
+  remote-CPU fields (`EINVAL`). The C tool (`jailhouse cell
+  create/load/start`) is not affected.
+- `0002-configs-kv260-linux-demo-...`: `zynqmp-kv260-linux-demo.cell` had the
+  ivshmem configuration of another board (memory at 0x800400000, devices
+  00:01.0 and 00:03.0, INTx 146 and 147): now the root cells' links
+  (0x7e000000 and 0x7e100000, 00:01.0 and 00:02.0, INTx 141 and 142).
+- `0003-arm64-zynqmp-return-all-the-results-...`: the hypervisor forwarded
+  the root cell's firmware (SIP) calls returning only the low 32 bits of x0,
+  so every value that Linux read from the firmware while Jailhouse ran was
+  lost (e.g. `echo 0x0badcafe > .../zynqmp-firmware/ggs0; cat ggs0` gave
+  `0x0`). It now returns x0-x3.
 
 Root cells (`configs/arm64/`): `zynqmp-kv260.cell` (Jailhouse alone) and
 `zynqmp-kv260-omnv.cell` (with the R5 cores and the FPGA regions). Both keep
@@ -134,14 +152,16 @@ the four A53 cores in the root cell until a cell takes them.
 
 - `system_omnv.dts`: the KV260 with the Omnivisor's remoteproc nodes and the
   reserved memory: `jailhouse@7e000000` (32 MB, the hypervisor),
-  `rproc@3ed00000` (128 MB, R5 core 0's DDR and runPHI's cells, see
-  [Known issues](#known-issues)), `rproc@3ad00000` (64 MB, R5 core 1's
-  DDR), `cell@46d00000` (131 MB, the Linux demo cell: its communication
+  `rproc@3ed00000` (128 MB) and `rproc@3ad00000` (64 MB), the DDR of R5 cores
+  0 and 1, where their programs are linked; `runphi@4f000000` (256 MB,
+  runPHI's cells on the A53 cores, see
+  [runPHI](#runphi-backend_jailhouse)); `other@70000000` (32 MB, the PicoRV32
+  soft core's memory); `cell@46d00000` (131 MB, the Linux demo cell: its communication
   region and its RAM at 0x47000000, and the shared memory of the `rpu0-demo`
   R5 demo at 0x46d00000; without it the root Linux uses that RAM). The
   reservation was in `system_omnv.dts` when it was created (2025-02) and
-  dropped in 2025-05 (04c47443, no reason given); restored 2026-11.
-  `system.dts` is now the same file.
+  dropped in 2025-05 (04c47443, no reason given); restored 2026-11. The root
+  Linux keeps 3.2 GB.
 - `boot_tftp.cmd` (default): kernel and DTB from `tftpboot/kria-jailhouse/` on
   192.168.100.45, NFS root from `output/rootfs/kria`; if a TFTP fetch fails,
   kria-kvm from the SD card. Jailhouse needs nothing on the kernel command
@@ -169,9 +189,13 @@ card's ext4 partition on `/mnt/sd`, `/root/.profile`, `adjust_time.sh`,
 - `root/non_rootcell/`, `root/bitstreams/`, `lib/firmware/mempol_reg_r5_0.elf`
   and `bin/{bench,membw_ctrl}` ([MEMPOL.md](MEMPOL.md)): prebuilt demo
   binaries
-- `lib/firmware/dfx_wrapper.bit`: the Omnivisor root cell's FPGA base design,
-  for now a link to the stand-in `root/bitstreams/base_pico32_tg.bit` (see
-  [Jailhouse and the Omnivisor](#jailhouse-and-the-omnivisor))
+- `lib/firmware/`: the Omnivisor's DFX design for the KV260 (see
+  [Jailhouse and the Omnivisor](#jailhouse-and-the-omnivisor)): the base
+  `dfx_wrapper.bit`, the partial bitstreams `dfx_picorv.bit` (PicoRV32) and
+  `dfx_reg0_vs_controller.bit` (VS controller), their overlays `pico32.dtbo`
+  and `vs_classic.dtbo`; `root/bitstreams/` keeps the previous design
+- `root/non_rootcell/linux/Image`: this environment's kernel, for the Linux
+  demo cell (the prebuilt one of 2024 had no PCI host driver, so no ivshmem)
 - `root/runphi`: runPHI with `backend_jailhouse`
 
 No address but eth0's: the QEMU-only `S93config_net` (a second address,
@@ -184,10 +208,10 @@ components one by one rather than with `build_environment.sh` (in the
 `env_builder` container, from the repository root):
 
 ```sh
-yes n | ./scripts/patch/linux_patch.sh -t kria -b jailhouse -d jailhouse_enable,omnivisor,preempt_rt
+yes n | ./scripts/patch/linux_patch.sh -t kria -b jailhouse -d jailhouse_enable,omnivisor,preempt_rt,omnv_fpga_rproc
 yes y | ./scripts/defconfigs/linux_update_defconfigs.sh -t kria -b jailhouse -s
 yes y | ./scripts/compile/linux_compile.sh -t kria -b jailhouse -m
-./scripts/patch/jailhouse_patch.sh -t kria -b jailhouse -p 0001-pyjailhouse-the-Omnivisor-s-cell-header-and-cell_load.patch
+./scripts/patch/jailhouse_patch.sh -t kria -b jailhouse -d omnv
 yes y | ./scripts/compile/jailhouse_compile.sh -t kria -b jailhouse -n -r all
 yes n | ./scripts/patch/buildroot_patch.sh -t kria -b jailhouse -d gcc_enabled
 yes y | ./scripts/defconfigs/buildroot_update_defconfigs.sh -t kria -b jailhouse -s
@@ -242,61 +266,85 @@ Then, on the board (`JAILHOUSE_DIR=/root/jailhouse`, `jailhouse` in `PATH`):
 jailhouse cell list      # ZynqMP-KV260: CPUs 0-3, rCPUs 0-1, FPGA regions 0-2
 ~/scripts_jailhouse_kria/demos/bm_demo.sh APU gic-demo        # gic-demo.bin on an A53 core
 ~/scripts_jailhouse_kria/demos/bm_demo.sh RPU0 demo           # rpu0-demo-demo.elf on R5 core 0
+~/scripts_jailhouse_kria/demos/bm_demo.sh RPU1 latency        # rpu1-latency-demo.elf on R5 core 1
 jailhouse cell destroy inmate-demo-APU
-~/scripts_jailhouse_kria/demos/linux_demo.sh                  # Linux on CPUs 2-3, console on the serial port
 jailhouse disable
 ```
 
-**The FPGA base design.** The Omnivisor root cell loads
-`/lib/firmware/dfx_wrapper.bit` into the FPGA when Jailhouse is enabled
-(`.fpga_base_bitstream` of `zynqmp-kv260-omnv.c`, since the fork's 9b2066ec);
-without it `jailhouse enable` fails ("failed to load root bitstream") and
-`jailhouse_start.sh -o` stops with an error. The fork's cells name the DFX
-design of `DanieleOttaviano/vs_test_omnv` (`FPGA_VS_controller/`: the base
-`dfx_wrapper.bit`, the partial bitstreams `dfx_picorv.bit` and
-`dfx_reg0_vs_controller.bit`, the overlays `pico32.dtbo` and
-`vs_classic.dtbo`), which this environment does not have yet; the overlay's
-`root/bitstreams/` holds the previous design (`base_pico32_tg.bit`,
-`pico32_partial.bit`, `pico32.dtbo`). For now `lib/firmware/dfx_wrapper.bit`
-is a link to `/root/bitstreams/base_pico32_tg.bit`, a stand-in: a KV260 base
-design with the same configuration ports (0x80000000) and three regions,
-enough to enable Jailhouse and to run the APU, R5 and Linux cells, but not
-the partial bitstreams of the DFX design (a partial bitstream only fits the
-base it was built with).
-
 The cells print on the board's serial console (`ttyPS1`, the USB serial port
-of the carrier card; the Linux cell's `ttyPS0` is the same UART).
-`bm_demo.sh` without a demo name lists the demos of a core. An R5 or RISC-V
-cell is loaded with `jailhouse cell load <cell> -r <elf> <core>`, the ELF in
-`/lib/firmware` (the script copies it there); the RISC-V soft core (core 2)
-also needs its partial bitstream and device-tree overlay in `/lib/firmware`
-and the `pico32_remoteproc` module, which this environment does not have yet
-(see [Known issues](#known-issues) and `Documentation/omnivisor.md` of the
-fork).
+of the carrier card). `bm_demo.sh` without a demo name lists the demos of a
+core. An R5 or RISC-V cell is loaded with `jailhouse cell load <cell> -r
+<elf> <core>`, the ELF in `/lib/firmware` (the script copies it there).
+
+**The Linux demo cell** runs on CPUs 2-3 with 128 MB at 0x47000000, the
+kernel of this environment and a small initramfs; its console is the root
+cell's UART (`ttyPS0` in the cell). Its two ivshmem-net links are the root
+cell's `eth1` and `eth2`. Arguments of `linux_demo.sh` go to the kernel's
+command line, e.g. an address on the first link:
+
+```sh
+ip addr add 192.0.2.1/24 dev eth1; ip link set eth1 up
+~/scripts_jailhouse_kria/demos/linux_demo.sh ip=192.0.2.10::192.0.2.1:255.255.255.0::eth0:off
+ping 192.0.2.10
+jailhouse cell destroy ZynqMP-linux-demo; ip addr del 192.0.2.1/24 dev eth1; ip link set eth1 down
+```
+
+runPHI's cells with network take the same two devices: do not run both.
+
+**The FPGA.** The Omnivisor root cell loads its base design,
+`/lib/firmware/dfx_wrapper.bit`, into the FPGA when Jailhouse is enabled
+(`.fpga_base_bitstream` of `zynqmp-kv260-omnv.c`); without it `jailhouse
+enable` fails ("failed to load root bitstream") and `jailhouse_start.sh -o`
+stops with an error. The design is the DFX design of the Omnivisor's KV260
+experiments, `DanieleOttaviano/vs_test_omnv` (`FPGA_VS_controller/`, git LFS,
+commit edd36bb; `design_2_wrapper`, Vivado 2024.2, for the `xck26`): a static
+part with three reconfigurable regions (configuration ports at 0x80000000,
+0x80000004, 0x80000008) and two partial bitstreams for region 0, the
+PicoRV32 RISC-V soft core (`dfx_picorv.bit`, `pico32.dtbo`,
+`pico32_remoteproc`, `zynqmp-kv260-RISCV-inmate-demo.cell`, rCPU 2) and the
+VS controller (`dfx_reg0_vs_controller.bit`, `vs_classic.dtbo`,
+`vs_classic_remoteproc`, `zynqmp-kv260-VS-Classic.cell`). A cell that owns a
+region loads its partial bitstream, overlay and module when it is created.
+This does not work yet on this board: see [Known issues](#known-issues).
 
 ## runPHI (backend_jailhouse)
 
 runPHI runs a container as a Jailhouse cell when its image has a
 `/boot/config.json` (see `doc/README.md` in runphi_manager), and hands any
 other container to runc. For each container it writes the cell's C
-configuration from the templates in `/usr/share/runPHI` (with
-`kria_platform_info.toml`: memory in `rproc@3ed00000`, the UART, an ivshmem
-device), compiles it with the board's gcc, and runs `jailhouse cell create`,
-`load`, `start`. A bare-metal image:
+configuration from the templates in `/usr/share/runPHI` and
+`platform_info.toml` (runphi_manager's `kria_platform_info.toml`), compiles
+it with the board's gcc, and runs `jailhouse cell create`, `load`, `start`.
+A bare-metal image:
 
 ```json
 { "os_var": "baremetal", "inmate": "/boot/gic-demo.bin", "net": "none", "rpu_req": false }
 ```
 
-runs on one A53 core (the container's CPU quota, default 1), in 64 MB of
-`rproc@3ed00000` (its memory limit, default 64 MB); with `"rpu_req": true`
-and an R5 ELF as `inmate`, on R5 core 0. `"net": "yes"` gives the cell one of
-the root cell's two ivshmem devices (`00:01.0`, `00:02.0`, the root cell's
-`eth1`, `eth2`), `"none"` none. Any `os_var` but `linux` is a single image
-(`jailhouse cell load`); Linux guests are not implemented in
-`backend_jailhouse`. The binary in the overlay is built with this
-environment's Buildroot toolchain, so that it uses the board's glibc (2.44).
-In `runphi_manager/rust_runphi`:
+- runs on one A53 core (the container's CPU quota, default 1), in 64 MB (its
+  memory limit) of `runphi@4f000000`, the free segments of `state.toml`;
+- with `"rpu_req": true` and an R5 ELF as `inmate`, on the R5 core whose
+  memory the ELF is linked into (`[rcpu.0]`, `[rcpu.1]` of
+  `platform_info.toml`: core 0's DDR is 0x3ed00000, core 1's 0x3ad00000, the
+  TCMs are both cores'), with that core's TCMs and DDR region and no memory
+  of the pool; an ELF outside every core's memory is refused, as is a core
+  in use;
+- `"net": "yes"` gives the cell one of the root cell's two ivshmem devices
+  (`00:01.0`, `00:02.0`, the root cell's `eth1`, `eth2`), `"none"` none;
+- any `os_var` but `linux` is a single image (`jailhouse cell load`); Linux
+  guests are not implemented in `backend_jailhouse` (refused).
+
+A container whose cell cannot be made (no free CPU, R5 core or memory, an ELF
+for no core, a configuration that does not compile, `jailhouse cell create`
+or `load` failing) is refused by `create` with the reason, and leaves
+nothing behind: no cell, no resources taken in `state.toml`, no link in
+`/lib/firmware` (each R5 container's program is linked as
+`/lib/firmware/runphi-<id>` and the link removed with it). runPHI only shuts
+down or destroys the cells it made.
+
+The binary in the overlay is built with this environment's Buildroot
+toolchain, so that it uses the board's glibc (2.44). In
+`runphi_manager/rust_runphi`:
 
 ```sh
 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=<environment_builder>/environment/kria/jailhouse/build/buildroot/output/host/bin/aarch64-buildroot-linux-gnu-gcc ./compile_rust.sh jailhouse
@@ -329,61 +377,68 @@ sets it (registries refuse TLS otherwise).
 
 ## Tests
 
-Tested on the KV260 (runphi_manager with the fixes of 2026-11-13, see
-[Known issues](#known-issues)):
+Tested on the KV260 (2026-11-14, runphi_manager with its fixes of that day):
 
 - the board boots kria-jailhouse over TFTP+NFS (6.1.70-rt21 PREEMPT_RT,
   `/sys/kernel/realtime` 1), with eth0's static address only; the root
-  Linux has 3.5 GB
-- `jailhouse_start.sh -o`: the Omnivisor root cell with CPUs 0-3, rCPUs 0-1,
-  FPGA regions 0-2; the virtual PCI host and `ivshmem-net` (`eth1`, `eth2`,
-  no address)
-- `bm_demo.sh APU gic-demo`: the cell takes CPU 0, timer jitter 0.8-1.8 us;
-  `bm_demo.sh RPU0 demo`: R5 core 0 runs the demo (`[RPU-0] time(us):
-  68090`); both cells destroyed, the cores back in the root cell
-- `linux_demo.sh`: Linux boots on CPUs 2-3 to its shell on the serial port
-- runPHI (containerd, `ctr`): a gic-demo image in a cell on CPU 0, with and
-  without network (`os_var` `zephyr` and `baremetal`); the FreeRTOS demo
-  (`rpu0-freertos-demo.elf`) on R5 core 0 next to an APU cell; a plain
-  busybox container through runc; `ctr task kill`, `ctr c rm` destroy the
-  cells and give the CPUs, rCPU, memory and ivshmem devices back to
-  `state.toml`
+  Linux has 3.2 GB
+- `jailhouse_start.sh -o` loads `dfx_wrapper.bit` and enables the Omnivisor
+  root cell (CPUs 0-3, rCPUs 0-1, FPGA regions 0-2), with the virtual PCI
+  host and `ivshmem-net` (`eth1`, `eth2`, no address); the firmware's results
+  reach Linux (`ggs0`)
+- `bm_demo.sh`: `gic-demo` on CPU 0 (timer jitter 0.8-1.8 us), `rpu0-demo`
+  on R5 core 0, `rpu1-latency` on R5 core 1; the cells destroyed, the cores
+  back in the root cell
+- `linux_demo.sh`: Linux on CPUs 2-3; the root cell pings it over the first
+  ivshmem-net link (192.0.2.1 to 192.0.2.10)
+- runPHI (containerd, `ctr`): at the same time a gic-demo cell on CPU 0
+  (64 MB of the pool, network), the FreeRTOS demo on R5 core 0 (core 0's
+  region, run to "Successfully ran FreeRTOS Hello World Example") and
+  `rpu1-latency` on R5 core 1, each core chosen from its ELF; a gic-demo
+  cell without network (`os_var` `baremetal`); an ordinary busybox container
+  through runc. Refused, with nothing left behind: a third R5 program for
+  core 0 ("R5 core 0 is not free"), a non-ELF R5 program, 300 MB of memory,
+  `os_var` `linux`, a configuration that does not compile (gcc's error), a
+  container named like a cell made by hand (that cell left running).
+  Stopping the containers gives every resource back to `state.toml`.
 - `jailhouse disable` releases every CPU and both R5 cores
 - `cyclictest -m -p 95 -i 1000 -D 15 -t 4 -a 0-3` on the idle root Linux
   (Jailhouse disabled): max 9-11 us
 
 ## Known issues
 
-- **runPHI's memory pool and the R5.** `kria_platform_info.toml` hands the
-  cells 0x3ed00000-0x46d00000 (`rproc@3ed00000`), the region where the R5
-  ELFs are linked (0x3ed00000). runPHI gives a container the first free
-  64 MB, but remoteproc loads an R5 ELF at its link address: an R5 container
-  works only when it gets 0x3ed00000, i.e. when it starts while no APU cell
-  holds it. Otherwise the root cell writes the ELF into another cell's memory
-  and the hypervisor stops that root CPU (seen once: CPU 2 "failed", RCU
-  stalls, a power cycle). Start R5 containers first; the fix belongs in
-  runPHI (give an R5 cell the region of its ELF, and keep the APU cells out
-  of it).
-- **runPHI error handling.** If a cell configuration does not compile, runPHI
-  logs "Compilation failed!!!" but `create` succeeds: the container is
-  RUNNING without a cell, `ctr task kill` fails (no cell to destroy), and the
-  container must be removed by hand (kill its `caronte`, then
-  `/usr/share/runPHI/cleanup.sh -c -r`, `ctr task rm`, `ctr c rm`).
+- **Partial reconfiguration under Jailhouse.** Loading a partial bitstream of
+  the DFX design while the hypervisor runs breaks the root cell's DMA: the
+  Ethernet controller reports "DMA bus error: HRESP not OK" without end, the
+  NFS root is lost, the board must be power-cycled. Both partial bitstreams
+  (`dfx_picorv.bit`, `dfx_reg0_vs_controller.bit`), so the RISC-V and the VS
+  controller cells do not work. Found so far (2026-11-14):
+  - it happens during the firmware's partial load (`echo dfx_picorv.bit >
+    /sys/class/fpga_manager/fpga0/firmware` with `flags` 1 and region 0 shut
+    down, as the driver does), before the region is reconnected and before
+    any overlay, module or cell; the SD card's DMA seems to stop too
+  - not with Jailhouse disabled: there the whole sequence (base, region
+    shutdown, partial load, reconnection, `pico32.dtbo`, `pico32_remoteproc`)
+    works and the network stays up
+  - a full load (`dfx_wrapper.bit`) under Jailhouse works
+  - the same with the plain root cell (`zynqmp-kv260.cell`, no stream IDs for
+    the FPGA), with the XMPU disabled (`config_omnv_no_xmpu.h`), and with the
+    SIP-results fix
+  The candidates left are the SMMU, which only the hypervisor enables (every
+  root DMA master is behind the root cell's context), and the QSPI firmware
+  (PMUFW and ATF of 2022.1 and 2023, see [Firmware](#firmware); the design is
+  from Vivado 2024.2). Next steps: update the QSPI firmware, and read the
+  SMMU's fault registers from the hypervisor after a partial load.
+- **runPHI's ivshmem interrupts.** runPHI's Ultrascale preamble sets no
+  `vpci_irq_base`, so a networked cell's ivshmem INTx goes to SPI 1 or 2,
+  while its interrupt bitmap allows 146 (`kria_platform_info.toml`). Not
+  tested: the guests used here do not use the network.
 - **R5 demos.** `rpu0-demo` writes to a shared memory at 0x46d00000 that only
   the fork's demo cell grants: in a runPHI container it stops after
-  `[RPU-0] Start!`. runPHI links each R5 ELF into `/lib/firmware` under its
-  own name (replacing a copy that `bm_demo.sh` put there) and leaves the link
-  behind.
-- **The Linux demo cell's network.** `zynqmp-kv260-linux-demo.cell` places its
-  ivshmem memory at 0x800400000, the Omnivisor root cell at 0x7e000000: the
-  link between them does not come up (and the prebuilt inmate kernel in
-  `root/non_rootcell/linux` does not probe it).
-- **RISC-V soft core and VS controller.** Need the fork's DFX design
-  (`dfx_wrapper.bit`, `dfx_picorv.bit`, `dfx_reg0_vs_controller.bit`,
-  `pico32.dtbo`, `vs_classic.dtbo`) and the `pico32_remoteproc` and
-  `vs_classic_remoteproc` modules, which the driver loads with
-  `request_module()`: not tested; the base design is a stand-in (see
-  [Jailhouse and the Omnivisor](#jailhouse-and-the-omnivisor)).
+  `[RPU-0] Start!`. `rpu1-membomb` writes into R5 core 0's and the soft
+  core's memory on purpose (the XMPU test).
+- `zcu104_platform_info.toml` (runphi_manager) has no `[rcpu.<id>]` sections
+  yet: there R5 cells still take the pool's memory.
 
 ## Moving to Linux 6.18
 

@@ -61,6 +61,8 @@ UBOOT_CONFIG=""
 # jailhouse_enable: the Jailhouse enabling patches (exports, ivshmem, ...).
 # omnivisor: the remoteproc changes of the Omnivisor.
 # preempt_rt: 6.1.69-rt21 adapted to linux-xlnx 6.1.70, as kria-kvm's.
+# omnv_fpga_rproc: the remoteproc drivers of the FPGA soft cores (PicoRV32, VS
+# controller) that the Omnivisor loads for the cells of the DFX design.
 # jailhouse_kria_isolcpu_kernel_defconfig: PREEMPT_RT, NO_HZ_FULL, HZ_1000, and
 # the namespaces, cgroups and netfilter options of containerd and Docker 28 on
 # cgroup v2.
@@ -69,7 +71,7 @@ UBOOT_CONFIG=""
 LINUX_BUILD="y"
 UPD_LINUX_COMPILE_ARGS="-s"
 LINUX_COMPILE_ARGS="-m"
-LINUX_PATCH_ARGS="-d jailhouse_enable,omnivisor,preempt_rt"
+LINUX_PATCH_ARGS="-d jailhouse_enable,omnivisor,preempt_rt,omnv_fpga_rproc"
 LINUX_REPOSITORY="https://github.com/Xilinx/linux-xlnx.git"
 LINUX_BRANCH="xlnx_rebase_v6.1_LTS"
 LINUX_COMMIT=""
@@ -92,12 +94,14 @@ BUILDROOT_CONFIG=""
 # JAILHOUSE
 # The Omnivisor fork, its newest commit (rcpu driver cleanup, 2025-10-10).
 # -r all: also the R5 and RISC-V inmate demos.
-# The patch: pyjailhouse follows the Omnivisor's cell header and cell_load
-# structures, without which "jailhouse cell linux" does not work.
+# omnv (custom_build/jailhouse/patch/omnv): pyjailhouse follows the
+# Omnivisor's structures ("jailhouse cell linux"), the Linux demo cell gets the
+# root cells' ivshmem links, and the root cell's firmware calls get all their
+# results back.
 JAILHOUSE_BUILD="y"
 UPD_JAILHOUSE_COMPILE_ARGS=""
 JAILHOUSE_COMPILE_ARGS="-n -r all"
-JAILHOUSE_PATCH_ARGS="-p 0001-pyjailhouse-the-Omnivisor-s-cell-header-and-cell_load.patch"
+JAILHOUSE_PATCH_ARGS="-d omnv"
 JAILHOUSE_REPOSITORY="https://github.com/DanieleOttaviano/jailhouse.git"
 JAILHOUSE_BRANCH="master"
 JAILHOUSE_COMMIT="628a02d8cbba8a288793e09238e33b40cf4910b0"

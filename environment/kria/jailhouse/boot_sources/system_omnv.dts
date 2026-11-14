@@ -114,6 +114,13 @@
 			no-map;
 			reg = <0x0 0x46d00000 0x0 0x8300000>;
 		};
+		/* runPHI's cells on the A53 cores (kria_platform_info.toml):
+		 * not the R5 cores' DDR (rproc@3ad00000, rproc@3ed00000), where
+		 * the R5 programs are linked */
+		runphi_reserved: runphi@4f000000 {
+			no-map;
+			reg = <0x0 0x4f000000 0x0 0x10000000>;
+		};
 		others_reserved: other@70000000 {
 			no-map;
 			reg = <0x0 0x70000000 0x0 0x2000000>;

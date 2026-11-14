@@ -1,0 +1,67 @@
+From: environment_builder
+Subject: [PATCH] arm64: zynqmp: return all the results of forwarded SIP calls
+
+On the ZynqMP the root cell's SIP calls (the firmware's EEMI calls) are
+forwarded with smc_arg4(), which returns int: only the low 32 bits of x0
+reach the caller, and x1-x3 keep the caller's arguments. The firmware puts
+its status in x0[31:0] and its payload in x0[63:32] and x1, which Linux
+reads as ret_payload[1..3]: every value that Linux reads from the firmware
+while Jailhouse runs is lost. For example the PMU's general storage
+register: "echo 0x0badcafe > .../zynqmp-firmware/ggs0" then "cat ggs0"
+gives 0x0 under Jailhouse, 0xbadcafe after jailhouse disable.
+
+smc_forward() passes x0-x7 and returns x0-x3, the four results of SMCCC.
+
+---
+diff --git a/hypervisor/arch/arm-common/smccc.c b/hypervisor/arch/arm-common/smccc.c
+index ed4ceec1..56c685e9 100755
+--- a/hypervisor/arch/arm-common/smccc.c
++++ b/hypervisor/arch/arm-common/smccc.c
+@@ -144,7 +144,8 @@ enum trap_return handle_smc(struct trap_context *ctx)
+ #if defined(__aarch64__) && defined(CONFIG_MACH_ZYNQMP_ZCU102)
+ 		switch (omnv_intercept_smc(ctx)) {
+ 		case 0:
+-			regs[0] = smc_arg4(regs[0], regs[1], regs[2], regs[3], regs[4]);
++			/* all the results: x0-x3, 64 bits each */
++			smc_forward(regs);
+ 			break;
+ 
+ 		case 1:
+diff --git a/hypervisor/arch/arm64/include/asm/smc.h b/hypervisor/arch/arm64/include/asm/smc.h
+index 5df08c9b..e460b41b 100755
+--- a/hypervisor/arch/arm64/include/asm/smc.h
++++ b/hypervisor/arch/arm64/include/asm/smc.h
+@@ -119,6 +119,33 @@ static inline long smc_arg5(unsigned long id, unsigned long par1,
+ 	return __id;
+ }
+ 
++/*
++ * Forward the SMC in regs[0..7] (x0-x7) and return its results in regs[0..3]:
++ * SMCCC returns up to four 64-bit results, x0-x3 (the ZynqMP firmware puts its
++ * payload in x0[63:32] and x1).
++ */
++static inline void smc_forward(unsigned long *regs)
++{
++	register unsigned long __id asm("r0") = regs[0];
++	register unsigned long __par1 asm("r1") = regs[1];
++	register unsigned long __par2 asm("r2") = regs[2];
++	register unsigned long __par3 asm("r3") = regs[3];
++	register unsigned long __par4 asm("r4") = regs[4];
++	register unsigned long __par5 asm("r5") = regs[5];
++	register unsigned long __par6 asm("r6") = regs[6];
++	register unsigned long __par7 asm("r7") = regs[7];
++
++	asm volatile ("smc #0\n\t"
++		: "+r" (__id), "+r" (__par1), "+r" (__par2), "+r" (__par3),
++		  "+r"(__par4), "+r"(__par5), "+r"(__par6), "+r"(__par7)
++		: : "memory");
++
++	regs[0] = __id;
++	regs[1] = __par1;
++	regs[2] = __par2;
++	regs[3] = __par3;
++}
++
+ static inline long smc_arg7(unsigned long id, unsigned long par1,
+ 			    unsigned long par2, unsigned long par3,
+ 			    unsigned long par4, unsigned long par5,
