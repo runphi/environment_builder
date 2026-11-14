@@ -17,7 +17,7 @@ address, TFTP+NFS boot from 192.168.100.45, Docker and LVM on the SD card.
 
 ## Firmware
 
-The Kria boots BOOT.BIN from QSPI (see [../jailhouse/SETUP.md](../jailhouse/SETUP.md)),
+The Kria boots BOOT.BIN from QSPI (see [../jailhouse/SETUP.md](../jailhouse/SETUP.md#firmware)),
 whose U-Boot enters the next stage at EL2, which Xen needs as KVM does. The
 SD card's `boot.scr` (U-Boot's distro boot) selects what U-Boot starts:
 kria-kvm from the SD card, or the environment that the TFTP server selects
@@ -177,7 +177,7 @@ and kria-kvm on the SD card (`sd`), and shows the server's selection:
 ```
 
 `iso` only affects kria-kvm's boots. See kria-kvm's
-[SETUP.md](../kvm/SETUP.md#switching-environments-kria-kvm-kria-xen) for how
+[SETUP.md](../kvm/SETUP.md#switching-environments-kria-kvm-kria-xen-kria-jailhouse) for how
 the selection script is put on the SD card.
 
 ## Verify the Xen host

@@ -16,9 +16,9 @@
 # U-Boot's distro boot runs boot.scr from the FAT partition of the SD card.
 # Both variants are kept next to it, as boot_sd.scr and boot_tftp.scr, and
 # switching copies one of them over boot.scr. Works from any boot mode, in
-# kria-kvm and in kria-xen (the same script is in both overlays). The SD and
-# NFS root filesystems are separate copies: what changes in one does not
-# appear in the other.
+# kria-kvm, kria-xen and kria-jailhouse (the same script is in their
+# overlays). The SD and NFS root filesystems are separate copies: what changes
+# in one does not appear in the other.
 #
 # boot_tftp.scr is environment_builder's scripts/remote/boot_select.cmd: it
 # runs kria.scr from the server, which switch_backend.sh points at the boot
@@ -162,6 +162,7 @@ running_from() {
 	if awk '$2 == "/" && $3 == "nfs" { found = 1 } END { exit !found }' /proc/mounts; then
 		case "$(cat /proc/cmdline)" in
 		*nfsroot=*/kria/xen/*) echo "NFS, kria-xen (tftp mode)" ;;
+		*nfsroot=*/kria/jailhouse/*) echo "NFS, kria-jailhouse (tftp mode)" ;;
 		*) echo "NFS, kria-kvm (tftp mode)" ;;
 		esac
 	else

@@ -108,6 +108,12 @@
 			no-map;
 			reg = <0x0 0x3ed00000 0x0 0x8000000>;
 		};
+		/* The Linux non-root cell (zynqmp-kv260-linux-demo.cell): its
+		 * communication region at 0x46d00000 and its RAM at 0x47000000 */
+		cell_reserved: cell@46d00000 {
+			no-map;
+			reg = <0x0 0x46d00000 0x0 0x8300000>;
+		};
 		others_reserved: other@70000000 {
 			no-map;
 			reg = <0x0 0x70000000 0x0 0x2000000>;

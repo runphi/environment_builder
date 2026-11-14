@@ -97,13 +97,15 @@ same as qemu-kvm's, see the README there):
 
 ### Boot sources
 
-- `system_kvm.dts`: `system_omnv.dts` without the `jailhouse@7e000000`
-  reservation. The GIC-400 node already lists GICD/GICC/GICH/GICV and the
-  maintenance interrupt (PPI 9) that the KVM vGICv2 needs.
+- `system_kvm.dts`: kria-jailhouse's `system_omnv.dts` without the
+  `jailhouse@7e000000` and `cell@46d00000` reservations (the hypervisor's
+  and the Linux demo cell's memory). The GIC-400 node already lists
+  GICD/GICC/GICH/GICV and the maintenance interrupt (PPI 9) that the KVM
+  vGICv2 needs.
 - `boot_tftp.cmd` (default): kernel and DTB from `tftpboot/kria-kvm/` on
   192.168.100.45, NFS root from `output/rootfs/kria`, SD fallback. The SD
   card runs it through the server's selection, see
-  [Switching environments](#switching-environments-kria-kvm-kria-xen).
+  [Switching environments](#switching-environments-kria-kvm-kria-xen-kria-jailhouse).
 - `boot_sd.cmd`: the same kernel, DTB and rootfs, entirely from the SD card
   (see [SD card](#sd-card-standalone-boot-and-boot-mode)).
 
@@ -221,7 +223,7 @@ the same system with or without the TFTP/NFS server:
 | `mmcblk1p2` (ext4) | a copy of the NFS rootfs, `runphi/` (Docker store and LVM file, shared by both modes) |
 
 `/root/boot_mode.sh` selects the next boot, from any mode (the same script is
-in kria-xen's rootfs):
+in kria-xen's and kria-jailhouse's rootfs):
 
 ```sh
 /root/boot_mode.sh              # where / comes from, isolated CPUs, next boot mode and isolation
@@ -232,7 +234,7 @@ in kria-xen's rootfs):
 /root/boot_mode.sh sd iso 3 -r  # both at once
 ```
 
-### Switching environments (kria-kvm, kria-xen)
+### Switching environments (kria-kvm, kria-xen, kria-jailhouse)
 
 `boot_tftp.scr` on the FAT partition is environment_builder's
 `scripts/remote/boot_select.cmd` for the Kria: it runs `kria.scr` from the
@@ -242,6 +244,7 @@ TFTP server, and on the server `scripts/remote/switch_backend.sh` points
 ```sh
 ./scripts/remote/switch_backend.sh -t kria            # the environments and the selected one
 ./scripts/remote/switch_backend.sh -t kria -b xen -r  # kria-xen, reboot the board now
+./scripts/remote/switch_backend.sh -t kria -b jailhouse -r  # kria-jailhouse
 ./scripts/remote/switch_backend.sh -t kria -b kvm -r  # back to kria-kvm
 ```
 

@@ -1,5 +1,5 @@
 version = 3
-root = '/var/lib/containerd'
+root = '/mnt/sd/runphi-jailhouse/containerd'
 state = '/run/containerd'
 temp = ''
 plugin_dir = ''

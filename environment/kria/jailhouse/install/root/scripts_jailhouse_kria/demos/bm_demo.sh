@@ -1,75 +1,91 @@
 #!/bin/bash
+#
+# Start a bare-metal demo cell on the KV260 with the Omnivisor Jailhouse fork.
+# Enable the hypervisor first with the Omnivisor root cell:
+#   ~/scripts_jailhouse_kria/jailhouse_setup/jailhouse_start.sh -o
+#
+# Usage: bm_demo.sh [CPU] [DEMO]
+#   CPU:  APU | RPU0 | RPU1 | RISCV   (RPU is RPU0)
+#   DEMO: the demo name; run without it to list the demos of that CPU.
+#
+#   APU:   ${JAILHOUSE_DIR}/inmates/demos/arm64/<demo>.bin, loaded in the cell's memory
+#   RPU0/RPU1/RISCV: ${JAILHOUSE_DIR}/inmates/demos/<arch>/src_<demo>/<demo>-demo.elf,
+#          copied into /lib/firmware and loaded with "jailhouse cell load <cell> -r <elf> <core>"
+#          (Documentation/omnivisor.md). The RISC-V soft core (core 2) also needs the bitstreams,
+#          the device-tree overlay and the pico32_remoteproc module named in the cells
+#          (dfx_wrapper.bit, dfx_picorv.bit, pico32.dtbo) in /lib/firmware.
 
 PLATFORM="zynqmp-kv260"
+JAILHOUSE_DIR="${JAILHOUSE_DIR:-/root/jailhouse}"
+FIRMWARE_DIR="${FIRMWARE_DIR:-/lib/firmware}"
 
-CPUs=("RPU" "APU" "RISCV")
+CPU="${1:-}"
+DEMO="${2:-}"
 
-BITSTREAM="pico32_tg.bit"
+if [ -z "${CPU}" ]; then
+    echo "Choose the CPU of the inmate cell (APU, RPU0, RPU1, RISCV):"
+    read -r CPU
+fi
+[ "${CPU}" == "RPU" ] && CPU="RPU0"
 
-FPGA_REGION="0"
+case "${CPU}" in
+    APU)   ARCH="arm64"; CORE="" ;;
+    RPU0)  ARCH="armr5"; CORE=0; PREFIX="rpu0" ;;
+    RPU1)  ARCH="armr5"; CORE=1; PREFIX="rpu1" ;;
+    RISCV) ARCH="riscv"; CORE=2; PREFIX="riscv" ;;
+    *) echo "Invalid CPU '${CPU}' (APU, RPU0, RPU1, RISCV)"; exit 1 ;;
+esac
 
-echo "Platform: ${PLATFORM}"
+CELL="${JAILHOUSE_DIR}/configs/arm64/${PLATFORM}-${CPU}-inmate-demo.cell"
+INMATE="inmate-demo-${CPU}"
+DEMO_DIR="${JAILHOUSE_DIR}/inmates/demos/${ARCH}"
 
-# Check if the first argument is provided, otherwise prompt the user
-if [ -z "$1" ]; then
-    echo "Please choose the CPU where to launch the inmate cell(RPU, APU, RISCV):"
-    read CELL_CHOICE
-else
-    CELL_CHOICE=$1
+# The demos of this CPU: name -> file
+demo_files() {
+    if [ "${ARCH}" == "arm64" ]; then
+        ls "${DEMO_DIR}"/*.bin 2>/dev/null
+    else
+        ls "${DEMO_DIR}"/src_"${PREFIX}"-*/"${PREFIX}"-*-demo.elf 2>/dev/null
+    fi
+}
+demo_name() {
+    local f
+    f=$(basename "$1")
+    if [ "${ARCH}" == "arm64" ]; then
+        echo "${f%.bin}"
+    else
+        f="${f#"${PREFIX}"-}"
+        echo "${f%-demo.elf}"
+    fi
+}
+
+if [ -z "${DEMO}" ]; then
+    echo "Choose the demo:"
+    for f in $(demo_files); do demo_name "$f"; done
+    read -r DEMO
 fi
 
-# CPU choice validation
-if [[ ! " ${CPUs[@]} " =~ " ${CELL_CHOICE} " ]]; then
-    echo "Invalid CPU choice (RPU, APU, RISCV)."
-    exit 1
-fi
-# Map the user input to the corresponding cell file
-BAREMETAL_INMATE_CELL="${PLATFORM}-${CELL_CHOICE}-inmate-demo.cell"
-INMATE="inmate-demo-${CELL_CHOICE}"
-ARCH=$(case $CELL_CHOICE in
-    APU) echo "arm64" ;;
-    RPU) echo "armr5" ;;
-    RISCV) echo "riscv" ;;
-esac)
-
-# Check if the second argument is provided, otherwise prompt the user
-if [ -z "$2" ]; then
-    echo "Please choose the demo to launch from the following options:"
-    for demo_file in ${JAILHOUSE_DIR}/inmates/demos/${ARCH}/*-demo.bin; 
-    do 
-        demo_name=$(basename "$demo_file" | sed 's/-demo\.bin//')
-        echo "$demo_name"
-    done
-    read DEMO_CHOICE
-else
-    DEMO_CHOICE=$2
-fi
-
-# Check if the demo choice is valid
-DEMO_VALID=false
-for demo_file in ${JAILHOUSE_DIR}/inmates/demos/${ARCH}/*-demo.bin; 
-do 
-    demo_name=$(basename "$demo_file" | sed 's/-demo\.bin//')
-    if [ "$demo_name" == "$DEMO_CHOICE" ]; then
-        DEMO_VALID=true
-        DEMO_BIN="${demo_name}-demo.bin"
-        DEMO_BIN_TCM="${demo_name}-demo_tcm.bin"
+DEMO_FILE=""
+for f in $(demo_files); do
+    if [ "$(demo_name "$f")" == "${DEMO}" ]; then
+        DEMO_FILE="$f"
         break
     fi
 done
-
-if [ "$DEMO_VALID" == false ]; then
-    echo "Invalid demo choice. Exiting."
+if [ -z "${DEMO_FILE}" ]; then
+    echo "No demo '${DEMO}' for ${CPU}; the demos are:"
+    for f in $(demo_files); do demo_name "$f"; done
     exit 1
 fi
 
-jailhouse cell create ${JAILHOUSE_DIR}/configs/arm64/${BAREMETAL_INMATE_CELL}
-if [ "$CELL_CHOICE" == "RPU" ]; then
-    jailhouse cell load ${INMATE} ${JAILHOUSE_DIR}/inmates/demos/${ARCH}/${DEMO_BIN_TCM} -a 0xffe00000 ${JAILHOUSE_DIR}/inmates/demos/${ARCH}/${DEMO_BIN}
-elif [ "$CELL_CHOICE" == "RISCV" ]; then
-    jailhouse cell load ${INMATE} ${JAILHOUSE_DIR}/inmates/demos/${ARCH}/${DEMO_BIN} -b ${BITSTREAM} ${FPGA_REGION}
-
+set -e
+jailhouse cell create "${CELL}"
+if [ -z "${CORE}" ]; then
+    jailhouse cell load "${INMATE}" "${DEMO_FILE}"
 else
-    jailhouse cell load ${INMATE} ${JAILHOUSE_DIR}/inmates/demos/${ARCH}/${DEMO_BIN}
+    mkdir -p "${FIRMWARE_DIR}"
+    cp "${DEMO_FILE}" "${FIRMWARE_DIR}/"
+    jailhouse cell load "${INMATE}" -r "$(basename "${DEMO_FILE}")" "${CORE}"
 fi
-jailhouse cell start ${INMATE}
+jailhouse cell start "${INMATE}"
+echo "Started ${INMATE} with ${DEMO_FILE}; stop it with: jailhouse cell destroy ${INMATE}"

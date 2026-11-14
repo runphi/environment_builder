@@ -1,0 +1,16 @@
+# Static address, the board's only one (as in kria-kvm): there is no DHCP
+# client (the DNS server is in /etc/resolv.conf).
+# - kria-jailhouse boots with an NFS root: nfs_check makes ifup leave eth0 alone,
+#   the kernel has already configured it from the ip= argument of
+#   boot_tftp.cmd, and taking it down would cut off the root filesystem;
+# - from a local root filesystem, ifup configures eth0 with it.
+
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet static
+  pre-up /etc/network/nfs_check
+  address 192.168.100.46
+  netmask 255.255.255.0
+  gateway 192.168.100.254

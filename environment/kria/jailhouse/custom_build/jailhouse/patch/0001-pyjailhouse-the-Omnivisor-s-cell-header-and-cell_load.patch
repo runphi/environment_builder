@@ -1,0 +1,95 @@
+From: environment_builder
+Subject: [PATCH] pyjailhouse: the Omnivisor's cell header and cell_load
+
+Two places where pyjailhouse does not follow the Omnivisor's structures, which
+break "jailhouse cell linux":
+
+- config_parser.py: struct jailhouse_cell_desc (include/jailhouse/cell-config.h)
+  has num_rcpu_devices and num_fpga_devices between num_qos_devices and
+  vpci_irq_base, but CellConfig's header format leaves them out: every field
+  after them, and the memory regions, are read 8 bytes off, and "jailhouse
+  cell linux" finds no RAM in zynqmp-kv260-linux-demo.cell ("No space found to
+  load all images").
+
+- cell.py: struct jailhouse_cell_load (driver/jailhouse.h) always has
+  num_rcpu_images and rcpu_image after num_preload_images. load_image() packed
+  that layout only when config_omnv_fpga() found CONFIG_OMNV_FPGA in
+  pyjailhouse/../include/config.h, a file that does not exist (the build
+  writes include/jailhouse/config.h), and that function uses os without
+  importing it ("NameError: name 'os' is not defined" after the cell is
+  created). The other layout does not match the driver anyway: always pack
+  the driver's. And the ioctl number: with num_rcpu_images and rcpu_image the
+  structure is 56 bytes, JAILHOUSE_CELL_LOAD is 0x40380003, not 0x40300003
+  (the driver rejects the old number with EINVAL).
+
+---
+diff --git a/pyjailhouse/cell.py b/pyjailhouse/cell.py
+index 7597dfcb..9aabb293 100755
+--- a/pyjailhouse/cell.py
++++ b/pyjailhouse/cell.py
+@@ -18,15 +18,6 @@ import errno
+ import fcntl
+ import struct
+ 
+-def config_omnv_fpga():
+-    filename = os.path.dirname(os.path.abspath(__file__)) + "/../include/config.h"
+-    with open(filename, 'r') as f:
+-        for line in f:
+-            if line.startswith(f"#define CONFIG_OMNV_FPGA"):
+-                return True
+-        return False
+-
+-
+ # class JailhousePreloadBitstream(ctypes.Structure):
+ #     _fields_ = [
+ #         ('region', ctypes.c_uint32),
+@@ -36,7 +27,7 @@ def config_omnv_fpga():
+ 
+ class JailhouseCell:
+     JAILHOUSE_CELL_CREATE = 0x40100002
+-    JAILHOUSE_CELL_LOAD = 0x40300003
++    JAILHOUSE_CELL_LOAD = 0x40380003     # _IOW(0, 3, struct jailhouse_cell_load), 56 bytes
+     JAILHOUSE_CELL_START = 0x40280004
+ 
+     JAILHOUSE_CELL_ID_UNUSED = -1
+@@ -57,14 +48,11 @@ class JailhouseCell:
+     def load_image(self, image, address):
+ 
+         cbuf = ctypes.create_string_buffer(bytes(image))
+-        if config_omnv_fpga():
+-            load = struct.pack('i4x32sIIPQQQ8x',
+-                           JailhouseCell.JAILHOUSE_CELL_ID_UNUSED, self.name,
+-                           1,0,0,ctypes.addressof(cbuf), len(image), address)
+-        else:
+-            load = struct.pack('i4x32sI4xQQQ8x',
++        # struct jailhouse_cell_load of driver/jailhouse.h: cell id, one preload
++        # image, no remote-CPU image (num_rcpu_images 0, rcpu_image NULL)
++        load = struct.pack('i4x32sIIPQQQ8x',
+                            JailhouseCell.JAILHOUSE_CELL_ID_UNUSED, self.name,
+-                           1, ctypes.addressof(cbuf), len(image), address)
++                           1, 0, 0, ctypes.addressof(cbuf), len(image), address)
+         fcntl.ioctl(self.dev, self.JAILHOUSE_CELL_LOAD, load)
+ 
+     
+diff --git a/pyjailhouse/config_parser.py b/pyjailhouse/config_parser.py
+index 68078e7f..388c108e 100755
+--- a/pyjailhouse/config_parser.py
++++ b/pyjailhouse/config_parser.py
+@@ -153,7 +153,7 @@ class PIORegion:
+ 
+ 
+ class CellConfig:
+-    _HEADER_FORMAT = '=5sBH32s4xIIIIIIIIIIIIIQ8x32x'
++    _HEADER_FORMAT = '=5sBH32s4xIIIIIIIIIIIIIIIQ8x32x'
+ 
+     def __init__(self, data, root_cell=False):
+         self.data = data
+@@ -175,6 +175,8 @@ class CellConfig:
+              self.num_pci_caps,
+              self.num_stream_ids,
+              self.num_qos_devices,
++             self.num_rcpu_devices,
++             self.num_fpga_devices,
+              self.vpci_irq_base,
+              self.cpu_reset_address) = \
+                 struct.unpack_from(CellConfig._HEADER_FORMAT, self.data)

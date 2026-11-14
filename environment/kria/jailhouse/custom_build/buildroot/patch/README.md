@@ -1,2 +1,1 @@
-
-- gcc_enabled: The patch enables the selection (in buildroot configuration) of the gcc compiler. This will allow to install the gcc compiler in the filesystem of the environment if needed.
+- gcc_enabled: The patch enables the selection (in buildroot configuration) of the gcc compiler. This will allow to install the gcc compiler in the filesystem of the environment if needed. It is the Buildroot 2023.05 patch ported to Buildroot 2026.08.1 (the header says what changed), the same as kria-kvm's and qemu-jailhouse's.

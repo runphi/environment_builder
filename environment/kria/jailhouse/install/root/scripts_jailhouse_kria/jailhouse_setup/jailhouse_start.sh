@@ -17,6 +17,16 @@ fi
 
 echo "Using root cell configuration: ${ROOT_CELL}"
 
+# The Omnivisor root cell loads its FPGA base design at enable time
+# (.fpga_base_bitstream of configs/arm64/zynqmp-kv260-omnv.c): without it,
+# "jailhouse enable" fails with "failed to load root bitstream"
+BASE_BITSTREAM="dfx_wrapper.bit"
+if [ "${ROOT_CELL}" == "${PLATFORM}-omnv.cell" ] && [ ! -e "/lib/firmware/${BASE_BITSTREAM}" ]; then
+       echo "ERROR: /lib/firmware/${BASE_BITSTREAM} is missing: the Omnivisor root cell loads it"
+       echo "       into the FPGA when Jailhouse is enabled (see SETUP.md, Jailhouse and the Omnivisor)"
+       exit 1
+fi
+
 # Check if the firmware directory exists
 if [ -d "/lib/firmware" ]; then
        echo "firmware directory exists!"

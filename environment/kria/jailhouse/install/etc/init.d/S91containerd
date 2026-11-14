@@ -12,8 +12,16 @@ do_start() {
 
     	## We do kill Dockerd, as we dont need it and it just creates confusion 
     	## with the proper configuration of containerd started. We need a clean start
-    	## of containerd to use our config file  
-	/etc/init.d/S60dockerd stop 
+    	## of containerd to use our config file
+	## Buildroot's S60dockerd starts dockerd through a syslog wrapper, and dockerd
+	## writes its pidfile only once it runs: wait for it (at most 60 s), otherwise
+	## S60dockerd finds no dockerd to stop and leaves it running
+	i=0
+	while [ ! -s /var/run/dockerd.pid ] && [ $i -lt 300 ]; do
+		sleep 0.2
+		i=$((i + 1))
+	done
+	/etc/init.d/S60dockerd stop
 	sleep 1
 	echo "Starting containerd..."
 	start-stop-daemon --start --quiet --background --make-pidfile \

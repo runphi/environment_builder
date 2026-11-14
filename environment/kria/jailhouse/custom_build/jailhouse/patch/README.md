@@ -1,2 +1,3 @@
 
 - linux_vanilla: This patches are usefull when loading jailhouse in a kernel versione grater then 5.7 that is not been patched to run on jailhouse. However the kernel need the kprobe module enabled in the kernel config.
+- 0001-pyjailhouse-the-Omnivisor-s-cell-header-and-cell_load.patch: pyjailhouse (used by "jailhouse cell linux" and the config tools) did not follow the Omnivisor's structures: its cell parser missed num_rcpu_devices and num_fpga_devices and read the memory regions 8 bytes off, and its image loader looked for CONFIG_OMNV_FPGA in a config.h that does not exist (without importing os) to choose the cell_load layout. Applied by environment_cfgs/kria-jailhouse.sh (JAILHOUSE_PATCH_ARGS).

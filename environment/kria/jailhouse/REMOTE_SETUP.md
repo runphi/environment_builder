@@ -1,5 +1,11 @@
 # Kria Board Remote Setup Guide
 
+> **Superseded** by [SETUP.md](SETUP.md): kria-jailhouse now boots over TFTP+NFS from
+> 192.168.100.45 like kria-kvm and kria-xen (static address, the SD card's boot
+> selection, `scripts/remote/switch_backend.sh`). This file describes the earlier
+> lab setup (DHCP, a U-Boot with a built-in TFTP boot command) and is kept for
+> reference.
+
 To have a stable setup, the idea is to load a certfied ubuntu on the sd card of the board as a 
 backup image. Then using TFTP you can load the Image and the device tree generated through 
 this repo, and using NFS after that you can load the filesystem.

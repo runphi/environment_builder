@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# The KV260 as a Jailhouse host (the Omnivisor fork) for runPHI's
+# backend_jailhouse: linux-xlnx 6.1 LTS with the Jailhouse enabling patches and
+# PREEMPT_RT, Buildroot 2026.08.1, TFTP+NFS boot from 192.168.100.45 like
+# kria-kvm and kria-xen (scripts/remote/switch_backend.sh -t kria -b jailhouse).
+# See environment/kria/jailhouse/SETUP.md.
+
 ## Connection
 IP="192.168.100.46"
 USER="root"
@@ -15,14 +21,22 @@ CROSS_COMPILE="aarch64-linux-gnu-"
 REMOTE_COMPILE="arm-none-eabi-"
 
 ## Boot Sources Configuration
-BOOTCMD_CONFIG="nfs_isolcpu"
+# boot_tftp.cmd: kernel and DTB over TFTP from kria-jailhouse/, NFS root; if TFTP
+# fails, kria-kvm from the SD card.
+# system_omnv.dts: the KV260 with the jailhouse@7e000000 reservation and the
+# remoteproc nodes of the Omnivisor.
+BOOTCMD_CONFIG="tftp"
 DTS_CONFIG="omnv"
 
 ## COMPONENTS ##
 # QEMU
 QEMU_BUILD="n"
 
-# ATF
+# ATF, U-BOOT, BOOTGEN: the BOOT.BIN of the Kria's QSPI (FSBL, PMUFW, the ATF
+# fork with the Omnivisor changes, U-Boot), which kria-kvm and kria-xen boot
+# from too. The QSPI holds a build of these sources (U-Boot 2022.01-gff67091f,
+# ATF v2.8 6fca8a8); updating it (e.g. U-Boot xlnx_rebase_v2026.01) is a
+# separate step, see SETUP.md.
 ATF_BUILD="y"
 ATF_COMPILE_ARGS=""
 ATF_PATCH_ARGS=""
@@ -31,7 +45,6 @@ ATF_BRANCH="master"
 ATF_COMMIT=""
 ATF_CONFIG=""
 
-# U-BOOT 
 UBOOT_BUILD="y"
 UPD_UBOOT_COMPILE_ARGS=""
 UBOOT_COMPILE_ARGS=""
@@ -42,33 +55,52 @@ UBOOT_COMMIT=""
 UBOOT_CONFIG=""
 
 # LINUX
+# linux-xlnx 6.1 LTS (6.1.70, the last of the branch): the newest kernel that
+# the Jailhouse driver and the enabling patches support (SETUP.md has what a
+# move to 6.18 would take).
+# jailhouse_enable: the Jailhouse enabling patches (exports, ivshmem, ...).
+# omnivisor: the remoteproc changes of the Omnivisor.
+# preempt_rt: 6.1.69-rt21 adapted to linux-xlnx 6.1.70, as kria-kvm's.
+# jailhouse_kria_isolcpu_kernel_defconfig: PREEMPT_RT, NO_HZ_FULL, HZ_1000, and
+# the namespaces, cgroups and netfilter options of containerd and Docker 28 on
+# cgroup v2.
+# -s: stop the build if Kconfig drops any option of the defconfig (without the
+# preempt_rt patch, PREEMPT_RT used to be dropped silently).
 LINUX_BUILD="y"
-UPD_LINUX_COMPILE_ARGS=""
+UPD_LINUX_COMPILE_ARGS="-s"
 LINUX_COMPILE_ARGS="-m"
-LINUX_PATCH_ARGS="-d jailhouse_enable,omnivisor" #preempt-rt
+LINUX_PATCH_ARGS="-d jailhouse_enable,omnivisor,preempt_rt"
 LINUX_REPOSITORY="https://github.com/Xilinx/linux-xlnx.git"
 LINUX_BRANCH="xlnx_rebase_v6.1_LTS"
 LINUX_COMMIT=""
 LINUX_CONFIG="isolcpu"
 
 # BUILDROOT
+# Buildroot 2026.08.1, as the other Kria environments: qemu-jailhouse's rootfs
+# (Docker 28 with containerd, python3, gcc, ...) with the board's overlay.
+# gcc_enabled: gcc on the target, the 2023.05 patch ported to 2026.08.1.
+# -s: stop the build if Kconfig drops any option of the defconfig.
 BUILDROOT_BUILD="y"
-UPD_BUILDROOT_COMPILE_ARGS=""
+UPD_BUILDROOT_COMPILE_ARGS="-s"
 BUILDROOT_COMPILE_ARGS=""
 BUILDROOT_PATCH_ARGS="-d gcc_enabled"
 BUILDROOT_REPOSITORY="https://github.com/buildroot/buildroot.git"
-BUILDROOT_BRANCH="2023.05.x"
-BUILDROOT_COMMIT="25d59c073ac355d5b499a9db5318fb4dc14ad56c"
+BUILDROOT_BRANCH="2026.08.x"
+BUILDROOT_COMMIT="7fdeadb3b9f12f78e5fccca914d7fef47090ab9a"
 BUILDROOT_CONFIG=""
 
 # JAILHOUSE
+# The Omnivisor fork, its newest commit (rcpu driver cleanup, 2025-10-10).
+# -r all: also the R5 and RISC-V inmate demos.
+# The patch: pyjailhouse follows the Omnivisor's cell header and cell_load
+# structures, without which "jailhouse cell linux" does not work.
 JAILHOUSE_BUILD="y"
 UPD_JAILHOUSE_COMPILE_ARGS=""
 JAILHOUSE_COMPILE_ARGS="-n -r all"
-JAILHOUSE_PATCH_ARGS=""
+JAILHOUSE_PATCH_ARGS="-p 0001-pyjailhouse-the-Omnivisor-s-cell-header-and-cell_load.patch"
 JAILHOUSE_REPOSITORY="https://github.com/DanieleOttaviano/jailhouse.git"
 JAILHOUSE_BRANCH="master"
-JAILHOUSE_COMMIT=""
+JAILHOUSE_COMMIT="628a02d8cbba8a288793e09238e33b40cf4910b0"
 JAILHOUSE_CONFIG="omnv"
 
 # BOOTGEN

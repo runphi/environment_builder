@@ -1,0 +1,8 @@
+# Sourced by /etc/init.d/S80dhcp-server.
+#
+# No DHCP server at boot: nothing in this environment serves a network (runPHI
+# does not use dhcpd), and dhcpd exits when no subnet of /etc/dhcp/dhcpd.conf
+# matches its interfaces, which printed "Starting DHCP server: FAIL". To serve
+# one, add its subnet to /etc/dhcp/dhcpd.conf, set INTERFACES here and remove
+# the exit below.
+exit 0
