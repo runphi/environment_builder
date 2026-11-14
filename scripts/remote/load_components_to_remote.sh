@@ -140,3 +140,27 @@ else
   [ ${R} -eq 1 ] && rsync -ruv ${RSYNC_ARGS} "${RSYNC_ARGS_SSH}" ${runPHI_dir}/target/target_configs/${TARGET}_platform_info.toml ${USER}@${IP}:${RUNPHI_INSTALL_DIR}/platform_info.toml
   [ ${R} -eq 1 ] && rsync -ruv ${RSYNC_ARGS} "${RSYNC_ARGS_SSH}" ${runPHI_dir}/target/target_configs/${TARGET}_state.toml ${USER}@${IP}:${RUNPHI_INSTALL_DIR}/state.toml
 fi
+
+# runPHI compiles a cell configuration for each container against
+# ${RUNPHI_INSTALL_DIR}/include ("types.h", "cell-config.h", ...). The copies in
+# runphi_manager are those of qemu-jailhouse's Jailhouse (configuration revision
+# 13); the Omnivisor fork of the boards is revision 14, with the remote CPUs and
+# the FPGA. Install the headers of the Jailhouse that this environment builds
+# (what -j loads), flattened as runphi_manager's copies are, so that the cells
+# match the hypervisor.
+if [ ${R} -eq 1 ]; then
+  jh_include="${jailhouse_dir}/include/jailhouse"
+  jh_types="${jailhouse_dir}/hypervisor/include/jailhouse/types.h"
+  if [ -f "${jh_include}/cell-config.h" ] && [ -f "${jh_types}" ]; then
+    headers_dir=$(mktemp -d)
+    for h in "${jh_include}"/*.h; do
+      sed -E 's|#include <jailhouse/([^>]+)>|#include "\1"|' "${h}" >"${headers_dir}/$(basename "${h}")"
+    done
+    cp "${jh_types}" "${headers_dir}/types.h"
+    rsync -rcv ${RSYNC_ARGS} ${RSYNC_ARGS_SSH:+"${RSYNC_ARGS_SSH}"} "${headers_dir}/" ${USER}@${IP}:${RUNPHI_INSTALL_DIR}/include/
+    rm -rf "${headers_dir}"
+  else
+    echo "WARNING: no Jailhouse headers in ${jailhouse_dir} (build Jailhouse first):"
+    echo "         runPHI keeps runphi_manager's, which may not match the hypervisor"
+  fi
+fi
