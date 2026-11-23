@@ -1,0 +1,56 @@
+#!/bin/sh
+#
+# Mounts the SD card's ext4 partition (label kr260root) on /mnt/sd, the local
+# disk of Docker (/etc/docker/daemon.json) and of the LVM volume group
+# (S29lvm-loop) in both boot modes.
+#
+# On the KR260 the microSD card is behind a USB bridge, on the USB5744 hub:
+# it appears a few seconds into the boot, after mount -a has run (with an NFS
+# root nothing waits for it; booted from the card, rootwait does). So
+# /etc/fstab marks it noauto and this script waits for it, then mounts it.
+# Booted from the card, this mounts the root partition a second time.
+
+NAME=mnt-sd
+LABEL=kr260root
+MOUNTPOINT=/mnt/sd
+WAIT=30
+
+do_start() {
+	echo -n "Starting $NAME: "
+	if awk -v m="$MOUNTPOINT" '$2 == m { found = 1 } END { exit !found }' /proc/mounts; then
+		echo "OK (already mounted)"
+		return 0
+	fi
+	i=0
+	while ! findfs "LABEL=$LABEL" >/dev/null 2>&1; do
+		if [ "$i" -ge "$WAIT" ]; then
+			echo "FAIL (no partition labeled $LABEL after ${WAIT}s)"
+			return 1
+		fi
+		sleep 1
+		i=$((i + 1))
+	done
+	mount "$MOUNTPOINT" && echo "OK ($(findfs "LABEL=$LABEL"))" || echo "FAIL (mount)"
+}
+
+do_stop() {
+	echo -n "Stopping $NAME: "
+	umount "$MOUNTPOINT" 2>/dev/null
+	echo "OK"
+}
+
+case "$1" in
+	start)
+		do_start
+		;;
+	stop)
+		do_stop
+		;;
+	restart)
+		do_stop
+		do_start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+esac

@@ -1,0 +1,117 @@
+Subject: [PATCH] package/xen: fix the evaluation of SMCCC call parameters
+
+Backports Xen's "xen/arm: Fix evaluation of parameters for SMCCC calls"
+(stable-4.22 781b60f95140, cherry-picked from 95302b39430c), which is not
+in a release yet. Xen 4.22.0 assigns each argument of arm_smccc_1_1_smc()
+straight to its register variable, so an argument that calls a function
+clobbers the registers already loaded. The ZynqMP EEMI mediator forwards
+Dom0's firmware calls as arm_smccc_1_1_smc(get_user_reg(regs, 0), ...):
+every forwarded call reached TF-A with garbage in x0 and returned SMC_UNK,
+Linux's zynqmp_firmware driver failed to probe (-EINVAL), and Dom0 had no
+clocks, so no Ethernet, SD card, I2C, ... (seen on a KV260 with Linux 6.18;
+with the fix, Dom0 boots over NFS).
+
+Upstream: not sent (Buildroot master's xen is also 4.22.0, without the fix).
+---
+diff --git a/package/xen/0003-xen-arm-Fix-evaluation-of-parameters-for-SMCCC-calls.patch b/package/xen/0003-xen-arm-Fix-evaluation-of-parameters-for-SMCCC-calls.patch
+new file mode 100644
+index 0000000..48797dd
+--- /dev/null
++++ b/package/xen/0003-xen-arm-Fix-evaluation-of-parameters-for-SMCCC-calls.patch
+@@ -0,0 +1,96 @@
++From: Andrew Cooper <andrew.cooper3@citrix.com>
++Date: Mon, 31 Aug 2026 11:44:35 +0100
++Subject: [PATCH] xen/arm: Fix evaluation of parameters for SMCCC calls
++
++Contrary to what was claimed in commit 67bcf5eae709 ("xen/arm: Simplify type
++handling for SMCCC declarations"), there is an important reason to retain the
++intermediate variable.  It is unsafe to have any logic between the assignment
++of the register variables and the asm() block they're used in.
++
++This logically reverts commit 67bcf5eae709 ("xen/arm: Simplify type handling
++for SMCCC declarations") while retaining the conversions from commit
++7f15d5d13221 ("xen/treewide: More typeof() -> auto conversions").
++
++Adjust __declare_arg_0() to match.  It happens to be safe because it's the
++first register expression once all macros are expanded, but it really should
++be consistent with the others.
++
++Leave a comment explaining why they must be written like this.
++
++Fixes: 67bcf5eae709 ("xen/arm: Simplify type handling for SMCCC declarations")
++Reported-by: Jan Setje-Eilers <Jan.SetjeEilers@oracle.com>
++Signed-off-by: Andrew Cooper <andrew.cooper3@citrix.com>
++Reviewed-by: Bertrand Marquis <bertrand.marquis@arm.com>
++(cherry picked from commit 95302b39430c9d2d4b50c2c63f56629e543b29e6)
++
++Upstream: https://xenbits.xen.org/gitweb/?p=xen.git;a=commit;h=781b60f951402ba138e60be3f1e2c5e97d9a63ab
++(stable-4.22, after RELEASE-4.22.0)
++---
++ xen/arch/arm/include/asm/smccc.h | 31 +++++++++++++++++++++++--------
++ 1 file changed, 23 insertions(+), 8 deletions(-)
++
++diff --git a/xen/arch/arm/include/asm/smccc.h b/xen/arch/arm/include/asm/smccc.h
++index 62c6985e7315..53cdddb690b7 100644
++--- a/xen/arch/arm/include/asm/smccc.h
+++++ b/xen/arch/arm/include/asm/smccc.h
++@@ -108,37 +108,52 @@ struct arm_smccc_res {
++ #define __constraint_read_6 __constraint_read_5, "r" (arg6)
++ #define __constraint_read_7 __constraint_read_6, "r" (arg7)
++ 
+++/*
+++ * Macro arguments MUST be evaluated before being assigned to a register
+++ * variable.
+++ *
+++ * This is manual register scheduling for the asm() statement, and any other
+++ * logic to evaluate may clobber the already-scheduled registers.
+++ */
++ #define __declare_arg_0(a0, res)                            \
+++    auto __a0 = (uint32_t)(a0);                             \
++     struct arm_smccc_res    *___res = (res);                \
++-    register unsigned long  arg0 ASM_REG(0) = (uint32_t)(a0)
+++    register unsigned long  arg0 ASM_REG(0) = __a0
++ 
++ #define __declare_arg_1(a0, a1, res)                        \
+++    auto __a1 = (a1);                                       \
++     __declare_arg_0(a0, res);                               \
++-    register auto           arg1 ASM_REG(1) = (a1)
+++    register auto           arg1 ASM_REG(1) = __a1
++ 
++ #define __declare_arg_2(a0, a1, a2, res)                    \
+++    auto __a2 = (a2);                                       \
++     __declare_arg_1(a0, a1, res);                           \
++-    register auto           arg2 ASM_REG(2) = (a2)
+++    register auto           arg2 ASM_REG(2) = __a2
++ 
++ #define __declare_arg_3(a0, a1, a2, a3, res)                \
+++    auto __a3 = (a3);                                       \
++     __declare_arg_2(a0, a1, a2, res);                       \
++-    register auto           arg3 ASM_REG(3) = (a3)
+++    register auto           arg3 ASM_REG(3) = __a3
++ 
++ #define __declare_arg_4(a0, a1, a2, a3, a4, res)        \
+++    auto __a4 = (a4);                                   \
++     __declare_arg_3(a0, a1, a2, a3, res);               \
++-    register auto           arg4 ASM_REG(4) = (a4)
+++    register auto           arg4 ASM_REG(4) = __a4
++ 
++ #define __declare_arg_5(a0, a1, a2, a3, a4, a5, res)    \
+++    auto __a5 = (a5);                                   \
++     __declare_arg_4(a0, a1, a2, a3, a4, res);           \
++-    register auto           arg5 ASM_REG(5) = (a5)
+++    register auto           arg5 ASM_REG(5) = __a5
++ 
++ #define __declare_arg_6(a0, a1, a2, a3, a4, a5, a6, res)    \
+++    auto __a6 = (a6);                                       \
++     __declare_arg_5(a0, a1, a2, a3, a4, a5, res);           \
++-    register auto           arg6 ASM_REG(6) = (a6)
+++    register auto           arg6 ASM_REG(6) = __a6
++ 
++ #define __declare_arg_7(a0, a1, a2, a3, a4, a5, a6, a7, res)    \
+++    auto __a7 = (a7);                                           \
++     __declare_arg_6(a0, a1, a2, a3, a4, a5, a6, res);           \
++-    register auto           arg7 ASM_REG(7) = (a7)
+++    register auto           arg7 ASM_REG(7) = __a7
++ 
++ #define ___declare_args(count, ...) __declare_arg_ ## count(__VA_ARGS__)
++ #define __declare_args(count, ...)  ___declare_args(count, __VA_ARGS__)
