@@ -219,11 +219,12 @@ cp target/aarch64-unknown-linux-gnu/release/runphi <environment_builder>/environ
 
 ### Tests
 
-Run on the board on 2026-11-23, booted from the SD card (runphi_manager
-7dee20e): the tests of kria-kvm's RUNPHI.md, section 5, with the four
-`runphi-kvm-guest` images rebuilt on the board as RUNPHI.md describes (this
-environment's kernel, the Jailhouse Linux inmate's initramfs) and the
-`test-vg` volume group created once as in kria-kvm's SETUP.md:
+Run on the board on 2026-11-23 (runphi_manager 7dee20e), booted from the SD
+card and again over TFTP+NFS from 192.168.100.45, with the same results: the
+tests of kria-kvm's RUNPHI.md, section 5, with the four `runphi-kvm-guest`
+images rebuilt on the board as RUNPHI.md describes (this environment's kernel,
+the Jailhouse Linux inmate's initramfs) and the `test-vg` volume group created
+once as in kria-kvm's SETUP.md:
 
 | Test | Result |
 |---|---|
@@ -232,7 +233,7 @@ environment's kernel, the Jailhouse Linux inmate's initramfs) and the
 | 5.3 root on LVM | `lv_<id>` 168 MB, guest root `vda` ext4, volume removed |
 | 5.4 IRQ steering | 33 interrupts moved to 0-1 while running, all restored |
 | 5.5 an error | "cannot pin vCPU 0 ... to CPU 2", nothing left behind |
-| 5.6 ordinary container | forwarded to runc (a local busybox image: no Internet on the bench) |
+| 5.6 ordinary container | `hello-world` from Docker Hub forwarded to runc (from the SD card, without Internet: a local busybox image) |
 | 5.7 `runphi state` | the container's state |
 
 ## Platform constraints
