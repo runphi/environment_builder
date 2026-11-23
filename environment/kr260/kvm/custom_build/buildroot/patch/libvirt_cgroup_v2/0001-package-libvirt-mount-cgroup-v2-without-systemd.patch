@@ -1,0 +1,23 @@
+Subject: [PATCH] package/libvirt: mount cgroup v2 without systemd, as docker-engine
+
+Without systemd, libvirt selects cgroupfs-mount (the cgroup v1 hierarchies),
+while docker-engine selects cgroupfs-v2-mount and depends on
+!BR2_PACKAGE_CGROUPFS_MOUNT: a rootfs with both libvirt and Docker cannot be
+configured, and Kconfig drops docker-engine. libvirt supports cgroup v2 since
+5.0 (this Buildroot has 7.10), so select cgroupfs-v2-mount instead.
+
+Upstream: not sent (Buildroot master, 2026-11, still selects cgroupfs-mount).
+---
+diff --git a/package/libvirt/Config.in b/package/libvirt/Config.in
+index 0f73128d..a00c4569 100644
+--- a/package/libvirt/Config.in
++++ b/package/libvirt/Config.in
+@@ -29,7 +29,7 @@ config BR2_PACKAGE_LIBVIRT
+ 	select BR2_PACKAGE_LIBXML2
+ 	select BR2_PACKAGE_ZLIB
+ 	# run-time dependencies
+-	select BR2_PACKAGE_CGROUPFS_MOUNT if !BR2_INIT_SYSTEMD
++	select BR2_PACKAGE_CGROUPFS_V2_MOUNT if !BR2_INIT_SYSTEMD
+ 	help
+ 	  Libvirt is collection of software that provides a convenient
+ 	  way to manage virtual machines and other virtualization

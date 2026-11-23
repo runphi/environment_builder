@@ -9,3 +9,4 @@ kria-kvm
 qemu-kvm
 qemu-xen
 kria-xen
+kr260-kvm

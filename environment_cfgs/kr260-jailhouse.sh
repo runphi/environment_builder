@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ## Connection
-IP="10.162.12.226"
+IP="192.168.100.53"
 USER="ubuntu"
 SSH_ARGS=""
 RSYNC_ARGS_SSH=""
