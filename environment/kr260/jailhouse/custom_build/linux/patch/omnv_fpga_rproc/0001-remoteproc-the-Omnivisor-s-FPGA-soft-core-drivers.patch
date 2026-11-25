@@ -1,0 +1,474 @@
+From: environment_builder
+Subject: [PATCH] remoteproc: the Omnivisor's FPGA soft-core drivers
+
+The Jailhouse Omnivisor runs cells on soft cores in the FPGA: when a cell
+loads a partial bitstream of the KV260 DFX design (dfx_wrapper.bit), the
+driver also applies its device-tree overlay and loads the module named in
+the cell (request_module()), which drives the soft core as a remote
+processor:
+
+- pico32_remoteproc: the PicoRV32 RISC-V soft core (dfx_picorv.bit,
+  pico32.dtbo, compatible "dottavia,pico32-remoteproc"), rCPU 2 of
+  zynqmp-kv260-RISCV-inmate-demo.cell
+- vs_classic_remoteproc: the vertical-stabilization controller
+  (dfx_reg0_vs_controller.bit, vs_classic.dtbo, compatible
+  "fciraolo,vs_classic-remoteproc"), zynqmp-kv260-VS-Classic.cell
+
+The sources are those of DanieleOttaviano/vs_test_omnv
+(FPGA_VS_controller/remoteproc/, commit edd36bb), with two fixes in both
+probe functions: the private data's dev and rproc are set (the lines were
+commented out, so the messages had no device), and the error path no
+longer writes through an uninitialized pointer (*p_rproc = NULL).
+
+---
+diff --git a/drivers/remoteproc/Kconfig b/drivers/remoteproc/Kconfig
+index ec0d67e90..7755b6a24 100644
+--- a/drivers/remoteproc/Kconfig
++++ b/drivers/remoteproc/Kconfig
+@@ -369,6 +369,24 @@ config ZYNQMP_R5_REMOTEPROC
+ 	help
+ 	  Say y or m here to support ZynqMP R5 remote processors via the remote
+ 	  processor framework.
++
++config PICO32_REMOTEPROC
++	tristate "PicoRV32 soft-core remoteproc support (Omnivisor)"
++	depends on ARCH_ZYNQMP
++	help
++	  Say y or m here to support the PicoRV32 RISC-V soft core in the
++	  FPGA of the Omnivisor's DFX design as a remote processor. The
++	  Jailhouse Omnivisor loads the module (pico32_remoteproc) when a cell
++	  loads the soft core's partial bitstream and device-tree overlay.
++
++config VS_CLASSIC_REMOTEPROC
++	tristate "VS controller remoteproc support (Omnivisor)"
++	depends on ARCH_ZYNQMP
++	help
++	  Say y or m here to support the vertical-stabilization controller in
++	  the FPGA of the Omnivisor's DFX design as a remote processor. The
++	  Jailhouse Omnivisor loads the module (vs_classic_remoteproc) when a
++	  cell loads the controller's partial bitstream and device-tree overlay.
+ endif # REMOTEPROC
+ 
+ endmenu
+diff --git a/drivers/remoteproc/Makefile b/drivers/remoteproc/Makefile
+index 43e752f59..5b638982b 100644
+--- a/drivers/remoteproc/Makefile
++++ b/drivers/remoteproc/Makefile
+@@ -40,3 +40,5 @@ obj-$(CONFIG_STM32_RPROC)		+= stm32_rproc.o
+ obj-$(CONFIG_TI_K3_DSP_REMOTEPROC)	+= ti_k3_dsp_remoteproc.o
+ obj-$(CONFIG_TI_K3_R5_REMOTEPROC)	+= ti_k3_r5_remoteproc.o
+ obj-$(CONFIG_ZYNQMP_R5_REMOTEPROC)	+= zynqmp_r5_remoteproc.o
++obj-$(CONFIG_PICO32_REMOTEPROC)		+= pico32_remoteproc.o
++obj-$(CONFIG_VS_CLASSIC_REMOTEPROC)	+= vs_classic_remoteproc.o
+diff --git a/drivers/remoteproc/pico32_remoteproc.c b/drivers/remoteproc/pico32_remoteproc.c
+new file mode 100644
+index 000000000..0b6689049
+--- /dev/null
++++ b/drivers/remoteproc/pico32_remoteproc.c
+@@ -0,0 +1,173 @@
++
++
++#include <linux/interrupt.h>
++#include <linux/kernel.h>
++#include <linux/list.h>
++#include <linux/mailbox_client.h>
++#include <linux/mailbox/zynqmp-ipi-message.h>
++#include <linux/module.h>
++#include <linux/of_address.h>
++#include <linux/of_platform.h>
++#include <linux/of_reserved_mem.h>
++#include <linux/platform_device.h>
++#include <linux/remoteproc.h>
++#include <linux/skbuff.h>
++#include <linux/sysfs.h>
++
++#include "remoteproc_internal.h"
++
++struct pico32_rproc_data {
++	const char *device_name;
++	unsigned long base_addr;
++	unsigned long size;
++};
++
++
++struct pico32_rproc {
++	struct device *dev;
++	struct rproc *rproc;
++};
++
++static struct pico32_rproc_data pico32_data = {
++	.device_name = "pico32",
++};
++
++static void *pico32_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iomem)
++{
++	void __iomem *va = NULL;
++	struct pico32_rproc *p_rproc = rproc->priv;
++
++	dev_info(p_rproc->dev, "da 0x%llx len %zu, is_iomem %d\n", da, len, is_iomem ? *is_iomem : 0);
++	va = ioremap_wc(da, len);
++	return (__force void *)va;
++}
++
++static int pico32_rproc_start(struct rproc *rproc)
++{
++	struct pico32_rproc *p_rproc = rproc->priv;
++	volatile unsigned long __iomem *fpga_start;
++
++
++	dev_info(p_rproc->dev, "Starting Pico32 remoteproc\n");
++	// Map the physical address to virtual address space
++	fpga_start = ioremap(pico32_data.base_addr, sizeof(unsigned long));
++	if (!fpga_start) {
++		dev_err(p_rproc->dev, "Failed to map FPGA base address\n");
++		return -ENOMEM;
++	}
++
++	// Write 1 to the FPGA start address
++	iowrite8(0, fpga_start);
++	iowrite8(1, fpga_start);
++
++	// Unmap the address after use
++	iounmap(fpga_start);
++
++	return 0;
++}
++
++static int pico32_rproc_stop(struct rproc *rproc)
++{
++	struct pico32_rproc *p_rproc = rproc->priv;
++	volatile unsigned long __iomem *fpga_start;
++
++	// Map the physical address to virtual address space
++	fpga_start = ioremap(pico32_data.base_addr, sizeof(unsigned long));
++	if (!fpga_start) {
++		dev_err(p_rproc->dev, "Failed to map FPGA base address\n");
++		return -ENOMEM;
++	}
++
++	// Write 2 to the FPGA start address
++	iowrite32(0, fpga_start);
++
++	// Unmap the address after use
++	iounmap(fpga_start);
++
++	return 0;
++}
++
++static void pico32_rproc_kick(struct rproc *rproc, int vqid)
++{
++}
++
++static struct rproc_ops pico32_rproc_ops = {
++	.start		= pico32_rproc_start,
++	.stop		= pico32_rproc_stop,
++	.kick		= pico32_rproc_kick,
++	.load		= rproc_elf_load_segments,
++	.get_boot_addr	= rproc_elf_get_boot_addr, 
++	.da_to_va	= pico32_da_to_va,
++};
++
++
++static int pico32_rproc_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;	
++	struct device_node *np = dev->of_node;
++	struct rproc *rproc;
++	struct pico32_rproc *p_rproc;
++	int ret;
++	u32 reg[4];  // (2 for address, 2 for size)
++	
++	ret = of_property_read_u32_array(np, "reg", reg, 4);
++	if (ret) {
++		dev_err(dev, "Failed to read reg property\n");
++	} else {
++		pico32_data.base_addr = (unsigned long)reg[0] << 32 | reg[1];
++		pico32_data.size = (unsigned long)reg[2] << 32 | reg[3];
++		dev_info(dev, "Pico32 base address: 0x%lx, size: 0x%lx\n", pico32_data.base_addr, pico32_data.size);
++	}
++
++	dev_info(dev, "Pico32 remoteproc probing ...\n");
++	/* Allocate remoteproc */
++	rproc = devm_rproc_alloc(dev, dev_name(dev), &pico32_rproc_ops,
++				 NULL, sizeof(struct pico32_rproc));
++	if (!rproc) {
++		ret = -ENOMEM;
++		goto error;
++	}
++	dev_info(dev, "Pico32 remoteproc allocated\n");
++
++	rproc->auto_boot = false;
++	p_rproc = rproc->priv;
++	p_rproc->rproc = rproc;
++	p_rproc->dev = dev;
++
++	dev_info(dev, "Adding the remoteproc\n");
++	/* Add pico32 remoteproc */
++	ret = devm_rproc_add(dev, rproc);
++	if (ret)
++		goto error;
++	dev_info(dev, "Pico32 remoteproc added\n");
++
++	return 0;
++error:
++	return ret;
++}
++
++static int pico32_rproc_remove(struct platform_device *pdev)
++{
++	return 0;
++}
++
++
++static const struct of_device_id pico32_rproc_of_match[] = {
++	{ .compatible	= "dottavia,pico32-remoteproc", .data = &pico32_data, },
++	{ /* sentinel */ },
++};
++MODULE_DEVICE_TABLE(of, pico32_rproc_of_match);
++
++/* Match table for OF platform binding */
++static struct platform_driver pico32_rproc_driver = {
++	.probe = pico32_rproc_probe,
++	.remove = pico32_rproc_remove,
++	.driver = {
++		.name = "pico32-rproc",
++		.of_match_table = pico32_rproc_of_match,
++	},
++};
++module_platform_driver(pico32_rproc_driver);
++
++MODULE_AUTHOR("Daniele Ottaviano <daniele.ottaviano@tum.de>");
++MODULE_LICENSE("GPL v2");
+diff --git a/drivers/remoteproc/vs_classic_remoteproc.c b/drivers/remoteproc/vs_classic_remoteproc.c
+new file mode 100644
+index 000000000..ba964690c
+--- /dev/null
++++ b/drivers/remoteproc/vs_classic_remoteproc.c
+@@ -0,0 +1,227 @@
++#include <linux/interrupt.h>
++#include <linux/kernel.h>
++#include <linux/list.h>
++#include <linux/mailbox_client.h>
++#include <linux/mailbox/zynqmp-ipi-message.h>
++#include <linux/module.h>
++#include <linux/of_address.h>
++#include <linux/of_platform.h>
++#include <linux/of_reserved_mem.h>
++#include <linux/platform_device.h>
++#include <linux/remoteproc.h>
++#include <linux/skbuff.h>
++#include <linux/sysfs.h>
++#include <linux/types.h>
++
++#include "remoteproc_internal.h"
++
++struct classic_vs_pl_conf_port {
++    /*0x00*/ 
++    u16 enabled; // 1
++    /* Shared page ref */
++    /*0x02*/ 
++    u16 counter_offset;
++    /*0x04*/ 
++    u16 ivs3_offset;
++    /*0x06*/ 
++    u16 zdot_offset;
++    /*0x08*/ 
++    u16 marte_strategy_offset;
++    /*0x0A*/ 
++    u16 safe_control_output_offset;
++	/*0x0B*/ 
++    u16 output_counter_offset;
++    /*0x0C*/ 
++    u16 res_0_0;
++    /*0x10*/
++    u64 shared_page_base;
++    /* Constant values */
++    /*0x18*/
++    u64 Af_val;
++    /*0x20*/
++    u64 Bf_val;
++    /*0x28*/
++    u64 Cf_val;
++    /*0x30*/
++    u64 Df_val;
++    /*0x38*/
++    u64 gain_val;
++};
++
++struct vs_classic_rproc_data {
++    const char *device_name;
++	unsigned long base_addr;
++	unsigned long size;
++};
++
++struct vs_classic_rproc {
++    struct device *dev;
++    struct rproc *rproc;
++};
++
++static struct vs_classic_rproc_data vs_classic_data = {
++	.device_name = "vs_classic",
++};
++
++static void *vs_classic_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iomem) {
++    void __iomem *va = NULL;
++	struct vs_classic_rproc *vscc_rproc = rproc->priv;
++
++	dev_info(vscc_rproc->dev, "da 0x%llx len %zu, is_iomem %d\n", da, len, is_iomem ? *is_iomem : 0);
++	va = ioremap_wc(da, len);
++	return (__force void *)va;
++}
++
++static int vs_classic_rproc_start(struct rproc *rproc) {
++	struct vs_classic_rproc *p_rproc = rproc->priv;
++	volatile unsigned long __iomem *conf_port_base;
++	struct classic_vs_pl_conf_port *conf_port;
++
++	dev_info(p_rproc->dev, "Starting VS Classic Controller remoteproc\n");
++	// Map the physical address to virtual address space
++	conf_port_base = ioremap(vs_classic_data.base_addr, sizeof(struct classic_vs_pl_conf_port));
++	if (!conf_port_base) {
++		dev_err(p_rproc->dev, "Failed to map FPGA base address\n");
++		return -ENOMEM;
++	}
++
++	conf_port = (struct classic_vs_pl_conf_port *)conf_port_base;
++
++    /* Write computation constants */
++    iowrite64(0x3feffb161616edad , &conf_port->Af_val);
++    iowrite64(0x4000000000000000 , &conf_port->Bf_val);
++    iowrite64(0xbffc8afa2f05a709 , &conf_port->Cf_val);
++    iowrite64(0xc0906f1eb851eb85 , &conf_port->Df_val);
++    iowrite64(0xbee4f8b588e368f1 , &conf_port->gain_val);
++
++    /* Shared page data */
++    iowrite64(0x46d00000, &conf_port->shared_page_base);
++
++    iowrite16(0x0B8, &conf_port->ivs3_offset);
++    iowrite16(0x0D0, &conf_port->zdot_offset);
++    iowrite16(0x1D1, &conf_port->counter_offset); //input_counter
++    iowrite16(0x1D2, &conf_port->marte_strategy_offset);
++	iowrite16(0x1D3, &conf_port->output_counter_offset);
++    iowrite16(0x1E0, &conf_port->safe_control_output_offset);
++    
++    /* Finally, enable the module */
++    iowrite8(1, &conf_port->enabled);
++
++	// Unmap the address after use
++	iounmap(conf_port_base);
++
++	return 0;
++}
++
++static int vs_classic_rproc_stop(struct rproc *rproc) {
++	struct vs_classic_rproc *p_rproc = rproc->priv;
++	volatile unsigned long __iomem *conf_port_base;
++	struct classic_vs_pl_conf_port *conf_port; 
++
++	// Map the physical address to virtual address space
++	conf_port_base = ioremap(vs_classic_data.base_addr, sizeof(struct classic_vs_pl_conf_port));
++	if (!conf_port_base) {
++		dev_err(p_rproc->dev, "Failed to map FPGA base address\n");
++		return -ENOMEM;
++	}
++
++	conf_port = (struct classic_vs_pl_conf_port *)conf_port_base;
++
++	// Disable the module
++	iowrite8(0, &conf_port->enabled);
++
++	// Unmap the address after use
++	iounmap(conf_port_base);
++
++	return 0;
++}
++
++
++static void vs_classic_rproc_kick(struct rproc *rproc, int vqid) {}
++
++static int vs_classic_rproc_load(struct rproc *rproc, const struct firmware *fw){
++	return 0;
++}
++
++static int vs_classic_rproc_parse_fw(struct rproc *rproc, const struct firmware *fw){
++	return 0;
++}
++
++static struct rproc_ops vs_classic_rproc_ops = {
++	.start		= vs_classic_rproc_start,
++	.stop		= vs_classic_rproc_stop,
++	.kick		= vs_classic_rproc_kick,
++	.load		= vs_classic_rproc_load, //rproc_elf_load_segments,
++	.parse_fw	= vs_classic_rproc_parse_fw,
++	.get_boot_addr	= rproc_elf_get_boot_addr, 
++	.da_to_va	= vs_classic_da_to_va,
++};
++
++static int vs_classic_rproc_probe(struct platform_device *pdev) {
++
++	struct device *dev = &pdev->dev;
++	struct device_node *np = dev->of_node;
++	struct rproc *rproc;
++	struct vs_classic_rproc *p_rproc;
++	int ret;	
++	u32 reg[4];  // (2 for address, 2 for size)
++	
++	ret = of_property_read_u32_array(np, "reg", reg, 4);
++	if (ret) {
++		dev_err(dev, "Failed to read reg property\n");
++	} else {
++		vs_classic_data.base_addr = (unsigned long)reg[0] << 32 | reg[1];
++		vs_classic_data.size = (unsigned long)reg[2] << 32 | reg[3];
++	}
++
++	dev_info(dev, "VS Classic Controller remoteproc probing ...\n");
++	/* Allocate remoteproc */
++	rproc = devm_rproc_alloc(dev, dev_name(dev), &vs_classic_rproc_ops,
++				 NULL, sizeof(struct vs_classic_rproc));
++	if (!rproc) {
++		ret = -ENOMEM;
++		goto error;
++	}
++	dev_info(dev, "VS Classic Controller remoteproc allocated\n");
++
++	rproc->auto_boot = false;
++	p_rproc = rproc->priv;
++	p_rproc->rproc = rproc;
++	p_rproc->dev = dev;
++
++	dev_info(dev, "Adding the remoteproc\n");
++	/* Add vs_classic remoteproc */
++	ret = devm_rproc_add(dev, rproc);
++	if (ret)
++		goto error;
++	dev_info(dev, "VS Classic Controller remoteproc added\n");
++
++	return 0;
++error:
++	return ret;
++}
++
++static int vs_classic_rproc_remove(struct platform_device *pdev) {
++	return 0;
++}
++
++
++static const struct of_device_id vs_classic_rproc_of_match[] = {
++	{ .compatible	= "fciraolo,vs_classic-remoteproc", .data = &vs_classic_data, },
++	{ /* sentinel */ },
++};
++MODULE_DEVICE_TABLE(of, vs_classic_rproc_of_match);
++
++/* Match table for OF platform binding */
++static struct platform_driver vs_classic_rproc_driver = {
++	.probe = vs_classic_rproc_probe,
++	.remove = vs_classic_rproc_remove,
++	.driver = {
++		.name = "vs_classic-rproc",
++		.of_match_table = vs_classic_rproc_of_match,
++	},
++};
++module_platform_driver(vs_classic_rproc_driver);
++
++MODULE_AUTHOR("Francesco Ciraolo <fciraolo@bu.edu>");
++MODULE_LICENSE("GPL v2");

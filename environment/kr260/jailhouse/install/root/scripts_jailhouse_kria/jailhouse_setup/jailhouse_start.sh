@@ -1,7 +1,5 @@
 #!/bin/bash
 
-source /etc/profile
-
 # Default cell configuration
 PLATFORM="zynqmp-kr260"
 
@@ -18,6 +16,10 @@ else
 fi
 
 echo "Using root cell configuration: ${ROOT_CELL}"
+
+# The KR260's Omnivisor root cell (configs/arm64/zynqmp-kr260-omnv.c, as patched by
+# environment_builder) loads no FPGA base design at enable time: there is no DFX
+# design of the Omnivisor for the KR260 (the KV260's root cell loads dfx_wrapper.bit).
 
 # Check if the firmware directory exists
 if [ -d "/lib/firmware" ]; then

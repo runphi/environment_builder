@@ -1,0 +1,58 @@
+From: environment_builder
+Subject: [PATCH] configs: kr260-omnv: the KV260 root cell's memory layout, no FPGA base design
+
+The fork's KR260 Omnivisor root cell ("simple configuration for Kria kr260")
+is its KV260 root cell with two differences, both of which stop it:
+
+- the hypervisor's memory at 0x7e000000, where the root cell's two ivshmem
+  regions are (JAILHOUSE_SHMEM_NET_REGIONS at 0x7e000000 and 0x7e100000):
+  the KV260 root cell has it at 0x7f000000, the second half of the 32 MB
+  jailhouse@7e000000 reservation of the DT, which is where it goes here too,
+  with 15 MB instead of 16: the K26 SOM's DT reserves pmu@7ff00000 (1 MB)
+  for the PMU firmware, which the KV260 root cell's last megabyte overlaps;
+- the FPGA base design "system.bit" ("to do"): the driver loads the named
+  bitstream into the FPGA at "jailhouse enable" and fails without it. The
+  Omnivisor has no DFX design for the KR260, so the name is empty, which the
+  driver skips (driver/main.c).
+
+The KR260 has the same K26 SOM as the KV260 (DDR, R5 cores, UART1), and the
+root cell's MMIO regions already cover the KR260's carrier devices (GEM0,
+GEM1, both USB controllers): the rest of the configuration is unchanged.
+
+---
+diff --git a/configs/arm64/zynqmp-kr260-omnv.c b/configs/arm64/zynqmp-kr260-omnv.c
+index 0f7ea39e..11d8cf9a 100755
+--- a/configs/arm64/zynqmp-kr260-omnv.c
++++ b/configs/arm64/zynqmp-kr260-omnv.c
+@@ -18,7 +18,7 @@
+  *		ranges;
+  *		jailhouse_reserved: jailhouse@7e000000 {
+  *			no-map;
+- *			reg = <0x0 0x7e000000 0x0 0x1000000>;
++ *			reg = <0x0 0x7e000000 0x0 0x2000000>;
+  *		}; 
+  *	};
+  */
+@@ -46,8 +46,10 @@ struct {
+ 		.architecture = JAILHOUSE_ARM64,
+ 		.flags = JAILHOUSE_SYS_VIRTUAL_DEBUG_CONSOLE,
+ 		.hypervisor_memory = {
+-			.phys_start = 0x7e000000,
+-			.size =       0x01000000,
++			/* above the ivshmem regions at 0x7e000000, as on the KV260,
++			 * below the PMU firmware's pmu@7ff00000 (K26 SOM DT) */
++			.phys_start = 0x7f000000,
++			.size =       0x00f00000,
+ 		},
+ 		.debug_console = {
+ 			.address = 0xff010000,
+@@ -106,7 +108,8 @@ struct {
+ 				.nic_size = 0x100000,
+ 			},
+ 			.fpga = {
+-				.fpga_base_bitstream = "system.bit", 	    // to do ....
++				/* no DFX design for the KR260: no base design at enable */
++				.fpga_base_bitstream = "",
+ 				.fpga_base_addr = 0x80000000,				// FPGA base address
+ 				.fpga_flags = JAILHOUSE_FPGA_FULL, 			// flags for the FPGA base
+ 				.fpga_max_regions = 3,						// there will be 3 reconfigurable regions

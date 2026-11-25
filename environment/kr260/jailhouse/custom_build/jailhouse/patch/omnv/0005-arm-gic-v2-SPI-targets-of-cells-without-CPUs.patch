@@ -1,0 +1,59 @@
+From: environment_builder
+Subject: [PATCH] arm: irqchip, gic-v2: SPI targets of cells without CPUs
+
+The Omnivisor's cells may have no CPU, only remote CPUs (the R5 cores), and
+runPHI gives such a cell an SPI when its container has a network link (the
+link's ivshmem INTx, e.g. IRQ 141 or 142). When the cell was created,
+irqchip_config_commit() routed its SPIs to the cell's first CPU:
+gicv2_adjust_irq_target() read gicv2_target_cpu_map[first_cpu(cpu_set)], and
+first_cpu() of an empty set is past the last CPU (64 for a 64-bit set), so
+the read was out of bounds of the 8-entry map and the SPI's ITARGETSR byte
+became 0: no CPU. When the cell was destroyed and the SPI went back to the
+root cell, gicv2_targets_in_cell() found no target outside the root cell in
+0 and kept it. From then on the SPI was delivered to no CPU: on the KR260 a
+cell later given the same ivshmem link never got the root cell's interrupts
+(IRQ 142 pending in the distributor, its target 0), until a reboot.
+
+Now irqchip_config_commit() leaves the routing of a cell without CPUs alone
+(on GICv3 first_cpu() of an empty set would index the per-CPU data past its
+end too), and gicv2_adjust_irq_target() retargets an SPI that targets no
+CPU, so a target zeroed before is repaired the next time the SPI changes
+cell.
+
+---
+diff --git a/hypervisor/arch/arm-common/gic-v2.c b/hypervisor/arch/arm-common/gic-v2.c
+index 83811f19..c0a6ca46 100755
+--- a/hypervisor/arch/arm-common/gic-v2.c
++++ b/hypervisor/arch/arm-common/gic-v2.c
+@@ -274,7 +274,9 @@ static void gicv2_adjust_irq_target(struct cell *cell, u16 irq_id)
+ 	u32 targets = mmio_read32(itargetsr);
+ 	unsigned int shift = (irq_id % 4) * 8;
+ 
+-	if (gicv2_targets_in_cell(cell, (u8)(targets >> shift)))
++	/* an interrupt that targets no CPU at all is never delivered */
++	if ((u8)(targets >> shift) &&
++	    gicv2_targets_in_cell(cell, (u8)(targets >> shift)))
+ 		return;
+ 
+ 	targets &= ~(0xff << shift);
+diff --git a/hypervisor/arch/arm-common/irqchip.c b/hypervisor/arch/arm-common/irqchip.c
+index a4088fa5..4953546f 100755
+--- a/hypervisor/arch/arm-common/irqchip.c
++++ b/hypervisor/arch/arm-common/irqchip.c
+@@ -538,8 +538,15 @@ void irqchip_config_commit(struct cell *cell_added_removed)
+ 		return;
+ 
+ 	for (n = 32; n < sizeof(cell_added_removed->arch.irq_bitmap) * 8; n++) {
++		/*
++		 * A cell without CPUs (only remote CPUs, e.g. the R5 cores)
++		 * cannot take its interrupts here: leave their routing alone
++		 * (first_cpu() of its CPU set is past the last CPU).
++		 */
+ 		if (irqchip_irq_in_cell(cell_added_removed, n) &&
+-			(cell_added_removed != &root_cell))
++			(cell_added_removed != &root_cell) &&
++			first_cpu(cell_added_removed->cpu_set) <=
++			cell_added_removed->cpu_set->max_cpu_id)
+ 			irqchip.adjust_irq_target(cell_added_removed, n);
+ 
+ 		if (irqchip_irq_in_cell(&root_cell, n))

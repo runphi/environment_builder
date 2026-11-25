@@ -1,0 +1,63 @@
+From: environment_builder
+Subject: [PATCH] configs: kv260 linux-demo: the root cells' ivshmem links
+
+zynqmp-kv260-linux-demo.cell had the ivshmem configuration of another
+board: shared memory at 0x800400000 and 0x800700000, devices 00:01.0 and
+00:03.0, INTx 146 and 147. Both KV260 root cells (zynqmp-kv260.cell,
+zynqmp-kv260-omnv.cell) put their two ivshmem-net devices, 0001:00:01.0
+and 0001:00:02.0, at 0x7e000000 and 0x7e100000 as peer 0. The hypervisor
+pairs the devices by BDF, so 00:01.0 was "connected" to the root cell
+with each side's own memory, and no interrupt could reach the cell: the
+hypervisor sends INTx to 32 + vpci_irq_base + pin - 1, with the pin
+rotated by the device number, i.e. 141 and 142 here.
+
+The cell now uses the root cells' memory as peer 1, devices 00:01.0 and
+00:02.0, and lets 141 and 142 through, as the inmate device tree's
+interrupt map (pins 2 and 3 to SPI 109 and 110) expects.
+
+---
+diff --git a/configs/arm64/zynqmp-kv260-linux-demo.c b/configs/arm64/zynqmp-kv260-linux-demo.c
+index 1bd141af..02a55b13 100755
+--- a/configs/arm64/zynqmp-kv260-linux-demo.c
++++ b/configs/arm64/zynqmp-kv260-linux-demo.c
+@@ -49,10 +49,10 @@ struct {
+ 		0xc, //1100
+ 	},
+ 	.mem_regions = {
+-		/* IVSHMEM shared memory region for 00:01.0 */
+-		JAILHOUSE_SHMEM_NET_REGIONS(0x800400000, 1),
+-		/* IVSHMEM shared memory region for 00:03.0 */
+-		JAILHOUSE_SHMEM_NET_REGIONS(0x800700000, 0),
++		/* IVSHMEM shared memory region for 00:01.0, the root cell's 0001:00:01.0 */
++		JAILHOUSE_SHMEM_NET_REGIONS(0x07e000000, 1),
++		/* IVSHMEM shared memory region for 00:02.0, the root cell's 0001:00:02.0 */
++		JAILHOUSE_SHMEM_NET_REGIONS(0x07e100000, 1),
+ 		/* UART */ {
+ 			.phys_start = 0xff010000,
+ 			.virt_start = 0xff010000,
+@@ -91,7 +91,8 @@ struct {
+ 				1 << (54 - 32),
+ 				0,
+ 				0,
+-				(1 << (146 - 128)) | (1 << (147 - 128))
++				/* INTx of 00:01.0 and 00:02.0: 32 + vpci_irq_base + pin - 1 */
++				(1 << (141 - 128)) | (1 << (142 - 128))
+ 			},
+ 		},
+ 	},
+@@ -106,12 +107,12 @@ struct {
+ 			.shmem_peers = 2,
+ 			.shmem_protocol = JAILHOUSE_SHMEM_PROTO_VETH,
+ 		},
+-		/* 00:03.0 */ {
++		/* 00:02.0 */ {
+ 			.type = JAILHOUSE_PCI_TYPE_IVSHMEM,
+-			.bdf = 3 << 3,
++			.bdf = 2 << 3,
+ 			.bar_mask = JAILHOUSE_IVSHMEM_BAR_MASK_INTX,
+ 			.shmem_regions_start = 4,
+-			.shmem_dev_id = 0,
++			.shmem_dev_id = 1,
+ 			.shmem_peers = 2,
+ 			.shmem_protocol = JAILHOUSE_SHMEM_PROTO_VETH,
+ 		},

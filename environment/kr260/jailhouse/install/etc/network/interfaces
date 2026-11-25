@@ -1,0 +1,22 @@
+# Static address, the board's only one (as in kr260-kvm): there is no DHCP
+# client (the DNS server is in /etc/resolv.conf). The root cell keeps the
+# network ports when Jailhouse is enabled.
+# - kr260-jailhouse boots with an NFS root: nfs_check makes ifup leave eth1
+#   alone, the kernel has already configured it from the ip= argument of
+#   boot_tftp.cmd, and taking it down would cut off the root filesystem;
+# - from a local root filesystem, ifup configures eth1 with it.
+#
+# eth1 is the PS GEM0 port, J10D (ethernet@ff0b0000), where the cable goes.
+# GEM0's PHY is on the MDIO bus of GEM1 (J10C), so GEM0 probes after GEM1 and
+# gets the second name: eth0 is GEM1, J10C, which stays unconfigured. The
+# ivshmem-net links of the Linux demo cell come after them (eth2, eth3).
+
+auto lo
+iface lo inet loopback
+
+auto eth1
+iface eth1 inet static
+  pre-up /etc/network/nfs_check
+  address 192.168.100.53
+  netmask 255.255.255.0
+  gateway 192.168.100.254
